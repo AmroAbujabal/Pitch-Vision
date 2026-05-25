@@ -26,6 +26,7 @@ dev.db
 *.db
 *.sqlite3
 alembic_gen_tmp.db
+database/migrations/
 
 # Environment
 .env
