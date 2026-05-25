@@ -40,9 +40,12 @@ Bilingual product: Arabic + English UI.
 - Frame rate assumption: 25fps (broadcast); 50fps (tactical cam) — configure per source
 
 ## Environment
-- Use conda env: `conda activate football-ai`
+- Python: `/usr/local/bin/python3.11` (no conda on this machine)
+- Run tests: `/usr/local/bin/python3.11 -m pytest tests/test_api/ tests/test_db/ -q`
+- Start API: `/usr/local/bin/python3.11 -m uvicorn api.main:app --reload`
 - GPU: configure in config/settings.py (CUDA device index)
 - Model weights stored in /data/model_weights/ (not committed to git)
+- GitHub repo: https://github.com/AmroAbujabal/football-VLMs
 
 ## Completed
 - Detection pipeline (YOLO + SAM 2)
@@ -56,13 +59,30 @@ Bilingual product: Arabic + English UI.
 - Video upload endpoint → Celery async pipeline
 - Next.js dashboard (match list, match detail, player profile)
 
-## Current Priority
-Player performance prediction model:
-1. Add position + date_of_birth to Player model (Alembic migration)
-2. Feature assembly script (rolling match history → training rows)
-3. Train scikit-learn model per position group
-4. GET /api/v1/players/{id}/prediction endpoint
-5. Dashboard prediction widget
+## Next Session — Pick Up Here
+**Goal: Player performance prediction model**
+
+Step 1 — Alembic migration (Player model already has position + date_of_birth columns, but position defaults to "unknown" from pipeline; ensure it's being set properly)
+
+Step 2 — Feature assembly (`scripts/assemble_features.py`):
+- Per player, query their last N PlayerMatchStats rows ordered by match date
+- Build rolling 4-week feature vectors: [distance, sprints, hi_runs, top_speed, press_success_rate, pitch_control, dev_score]
+- Output: CSV or numpy array ready for sklearn
+
+Step 3 — Train model (`scripts/train_model.py`):
+- Load features, group by position
+- Ridge regression or RandomForest per position group
+- Target: next week's overall_score from DevelopmentScore
+- Pickle model to `data/models/prediction_{position}.pkl`
+
+Step 4 — Prediction endpoint:
+- `GET /api/v1/players/{id}/prediction`
+- Returns `{predicted_score, trend, confidence, week}`
+- Loads pickled model, assembles last 4 weeks of features, runs inference
+
+Step 5 — Dashboard widget on player profile page (predicted score badge + trend arrow)
+
+**Constraint:** Need real match data flowing through the pipeline first. With synthetic data the model won't generalise. Can train on synthetic data to validate the pipeline end-to-end, but real data is the unlock.
 
 ## Backlog
 - Heatmap grid written by pipeline (endpoint exists, data not yet computed)
