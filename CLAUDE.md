@@ -59,30 +59,32 @@ Bilingual product: Arabic + English UI.
 - Video upload endpoint → Celery async pipeline
 - Next.js dashboard (match list, match detail, player profile)
 
+## Completed
+- metrics/features.py: assemble_player_features() + build_training_dataset() + FEATURE_KEYS
+- scripts/train_model.py: Ridge regression per position group (GK/DEF/MID/FWD) + ALL fallback
+- GET /api/v1/players/{id}/prediction: predicted_score, trend, confidence, week
+  - lru_cache on model load; falls back to rolling mean when no model file exists
+
 ## Next Session — Pick Up Here
-**Goal: Player performance prediction model**
+**Goal: Dashboard prediction widget**
 
-Step 1 — Alembic migration (Player model already has position + date_of_birth columns, but position defaults to "unknown" from pipeline; ensure it's being set properly)
+Step 1 — Add prediction badge to `dashboard/app/players/[id]/page.tsx`:
+- Fetch `GET /api/v1/players/{id}/prediction` in the existing `Promise.all([...])`
+- Add to `dashboard/lib/api.ts`: `api.players.prediction(playerId)`
+- Add to `dashboard/lib/types.ts`: `PlayerPrediction` interface
+- Display as a card above the development trend section:
+  - Predicted score (large number)
+  - Trend arrow (↑ improving / → stable / ↓ declining)
+  - Confidence badge (greyed out if < 0.5 = fallback mode)
+  - "Week of {date}" label
 
-Step 2 — Feature assembly (`scripts/assemble_features.py`):
-- Per player, query their last N PlayerMatchStats rows ordered by match date
-- Build rolling 4-week feature vectors: [distance, sprints, hi_runs, top_speed, press_success_rate, pitch_control, dev_score]
-- Output: CSV or numpy array ready for sklearn
+Step 2 — Once real data flows, run training:
+```bash
+python scripts/train_model.py
+```
+Models saved to data/models/ (gitignored). Restart uvicorn worker to pick up new models.
 
-Step 3 — Train model (`scripts/train_model.py`):
-- Load features, group by position
-- Ridge regression or RandomForest per position group
-- Target: next week's overall_score from DevelopmentScore
-- Pickle model to `data/models/prediction_{position}.pkl`
-
-Step 4 — Prediction endpoint:
-- `GET /api/v1/players/{id}/prediction`
-- Returns `{predicted_score, trend, confidence, week}`
-- Loads pickled model, assembles last 4 weeks of features, runs inference
-
-Step 5 — Dashboard widget on player profile page (predicted score badge + trend arrow)
-
-**Constraint:** Need real match data flowing through the pipeline first. With synthetic data the model won't generalise. Can train on synthetic data to validate the pipeline end-to-end, but real data is the unlock.
+**Constraint:** Endpoint already works in fallback mode (confidence=0.30). Widget can be built and tested immediately — it just won't show a model-trained score until training runs.
 
 ## Backlog
 - Heatmap grid written by pipeline (endpoint exists, data not yet computed)
