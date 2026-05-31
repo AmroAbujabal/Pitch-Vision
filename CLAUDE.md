@@ -66,25 +66,20 @@ Bilingual product: Arabic + English UI.
   - lru_cache on model load; falls back to rolling mean when no model file exists
 
 ## Next Session — Pick Up Here
-**Goal: Dashboard prediction widget**
+**The prediction model pipeline is complete end-to-end.**
 
-Step 1 — Add prediction badge to `dashboard/app/players/[id]/page.tsx`:
-- Fetch `GET /api/v1/players/{id}/prediction` in the existing `Promise.all([...])`
-- Add to `dashboard/lib/api.ts`: `api.players.prediction(playerId)`
-- Add to `dashboard/lib/types.ts`: `PlayerPrediction` interface
-- Display as a card above the development trend section:
-  - Predicted score (large number)
-  - Trend arrow (↑ improving / → stable / ↓ declining)
-  - Confidence badge (greyed out if < 0.5 = fallback mode)
-  - "Week of {date}" label
-
-Step 2 — Once real data flows, run training:
+To activate the trained model (once real match data exists):
 ```bash
-python scripts/train_model.py
+python scripts/train_model.py     # saves to data/models/prediction_{group}.pkl
+# then restart uvicorn — lru_cache loads the new model on first request
 ```
-Models saved to data/models/ (gitignored). Restart uvicorn worker to pick up new models.
 
-**Constraint:** Endpoint already works in fallback mode (confidence=0.30). Widget can be built and tested immediately — it just won't show a model-trained score until training runs.
+**What's left (pick any):**
+1. Real pitch homography — `PitchHomography.fit_from_points()` needs manual corner annotations per match; currently uses linear pixel fallback (inaccurate for distance/speed)
+2. Heatmap data — `PlayerMatchStats.heatmap_data` is always null; pipeline needs a grid-accumulation step
+3. Re-ID across occlusions — TransReID/OSNet not started (needs torch)
+4. PostgreSQL + pgvector — production DB migration
+5. Arabic UI — `name_ar` fields in schema, dashboard is English-only
 
 ## Backlog
 - Heatmap grid written by pipeline (endpoint exists, data not yet computed)
