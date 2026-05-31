@@ -78,3 +78,12 @@ export interface PlayerHeatmap {
   match_id: string;
   heatmap_data: Record<string, unknown> | null;
 }
+
+export interface PlayerPrediction {
+  player_id: string;
+  predicted_score: number;
+  current_score: number;
+  trend: "improving" | "stable" | "declining";
+  confidence: number;
+  week: string;
+}

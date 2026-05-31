@@ -1,4 +1,4 @@
-import type { MatchListItem, MatchSummary, MatchPlayer, PlayerStats, PlayerProfile, PlayerHeatmap } from "./types";
+import type { MatchListItem, MatchSummary, MatchPlayer, PlayerStats, PlayerProfile, PlayerHeatmap, PlayerPrediction } from "./types";
 
 const BASE =
   process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -41,5 +41,9 @@ export const api = {
     /** Heatmap grid data for a player in a specific match. */
     heatmap: (playerId: string, matchId: string) =>
       apiFetch<PlayerHeatmap>(`/api/v1/players/${playerId}/heatmap?match_id=${matchId}`),
+
+    /** Predicted development score for the coming week. */
+    prediction: (playerId: string) =>
+      apiFetch<PlayerPrediction>(`/api/v1/players/${playerId}/prediction`),
   },
 };

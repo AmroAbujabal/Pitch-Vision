@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { api } from "@/lib/api";
-import type { DevelopmentScore } from "@/lib/types";
+import type { DevelopmentScore, PlayerPrediction } from "@/lib/types";
 import StatsHistoryChart from "@/components/StatsHistoryChart";
 
 interface Props {
@@ -41,9 +41,103 @@ function TrendRow({ score }: { score: DevelopmentScore }) {
   );
 }
 
+const TREND_ICON = {
+  improving: TrendingUp,
+  stable:    Minus,
+  declining: TrendingDown,
+} as const;
+
+const TREND_COLOUR = {
+  improving: "text-emerald-600",
+  stable:    "text-slate-500",
+  declining: "text-red-500",
+} as const;
+
+function PredictionCard({ prediction }: { prediction: PlayerPrediction }) {
+  const Icon = TREND_ICON[prediction.trend];
+  const trendColour = TREND_COLOUR[prediction.trend];
+  const isFallback = prediction.confidence < 0.5;
+
+  return (
+    <section aria-labelledby="prediction-heading" className="card">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 id="prediction-heading" className="section-title">Next week prediction</h2>
+          <p className="mt-0.5 text-xs text-slate-400">
+            Week of {new Date(prediction.week).toLocaleDateString("en-GB", {
+              day: "2-digit", month: "short", year: "numeric",
+            })}
+          </p>
+        </div>
+        {isFallback && (
+          <span className="shrink-0 rounded-full bg-slate-100 px-2 py-0.5 text-2xs font-medium text-slate-500">
+            estimate
+          </span>
+        )}
+      </div>
+
+      <div className="mt-4 flex items-end gap-6">
+        {/* Predicted score */}
+        <div>
+          <p className="kpi-label mb-1">Predicted score</p>
+          <p
+            className="text-4xl font-bold tabular-nums leading-none text-slate-900"
+            style={{ fontFamily: "'Fira Code', monospace" }}
+          >
+            {prediction.predicted_score.toFixed(1)}
+            <span className="ml-1 text-base font-normal text-slate-400">/10</span>
+          </p>
+        </div>
+
+        {/* Trend */}
+        <div className={`flex items-center gap-1.5 pb-1 ${trendColour}`}>
+          <Icon className="h-5 w-5" aria-hidden="true" />
+          <span className="text-sm font-semibold capitalize">{prediction.trend}</span>
+        </div>
+
+        {/* vs current */}
+        <div className="pb-1">
+          <p className="kpi-label mb-1">Current</p>
+          <p
+            className="text-lg font-semibold tabular-nums text-slate-500"
+            style={{ fontFamily: "'Fira Code', monospace" }}
+          >
+            {prediction.current_score.toFixed(1)}
+          </p>
+        </div>
+      </div>
+
+      {/* Confidence bar */}
+      <div className="mt-4">
+        <div className="flex items-center justify-between text-2xs text-slate-400 mb-1">
+          <span>Model confidence</span>
+          <span>{Math.round(prediction.confidence * 100)}%</span>
+        </div>
+        <div className="h-1.5 w-full rounded-full bg-slate-100">
+          <div
+            className={`h-1.5 rounded-full transition-all ${isFallback ? "bg-slate-300" : "bg-primary-500"}`}
+            style={{ width: `${prediction.confidence * 100}%` }}
+            role="meter"
+            aria-valuenow={Math.round(prediction.confidence * 100)}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label="Model confidence"
+          />
+        </div>
+        {isFallback && (
+          <p className="mt-1.5 text-2xs text-slate-400">
+            Using rolling average — train a model once match data accumulates.
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
 export default async function PlayerProfilePage({ params }: Props) {
   let profile;
   let statsHistory;
+  let prediction: PlayerPrediction | null = null;
 
   try {
     [profile, statsHistory] = await Promise.all([
@@ -61,6 +155,13 @@ export default async function PlayerProfilePage({ params }: Props) {
         </div>
       </main>
     );
+  }
+
+  // Prediction is optional — silently skip if not enough history yet
+  try {
+    prediction = await api.players.prediction(params.id);
+  } catch {
+    // 422 = not enough history; any other error → degrade gracefully
   }
 
   const latest = profile.latest_stats;
@@ -104,6 +205,9 @@ export default async function PlayerProfilePage({ params }: Props) {
           </p>
         </div>
       </div>
+
+      {/* Prediction card — shown whenever we have enough history */}
+      {prediction && <PredictionCard prediction={prediction} />}
 
       {/* Latest match snapshot */}
       {latest && (
