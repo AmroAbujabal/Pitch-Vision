@@ -1,29 +1,23 @@
 # ---- Stage 1: dependency builder ----
-# Install Python deps into a venv so the final stage only copies what's needed.
 FROM python:3.11-slim AS builder
 
 WORKDIR /build
 
-# System libs required at install time (some packages compile C extensions)
+# System libs needed to compile C extensions (cryptography, etc.)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc g++ libffi-dev libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy only the requirements file first so Docker caches this layer
-COPY requirements.txt .
+# The API service (FastAPI + SQLAlchemy + auth) does not need torch or opencv
+# at runtime — those are only required by the Celery video-processing worker.
+# Installing from requirements-ci.txt keeps the API image small and fast to build.
+# To build a full worker image that includes torch/paddlepaddle/opencv, pass:
+#   --build-arg REQUIREMENTS=requirements.txt
+ARG REQUIREMENTS=requirements-ci.txt
+COPY requirements-ci.txt requirements.txt* ./
 
-# Install CPU-only PyTorch (avoids pulling in ~5 GB CUDA wheels)
-# then install the rest of the requirements.
-# torch + torchvision are listed in requirements.txt with >=, so we pin
-# the CPU index here; the --extra-index-url lookup handles the rest.
 RUN pip install --upgrade pip && \
-    pip install --no-cache-dir \
-        torch==2.3.0+cpu \
-        torchvision==0.18.0+cpu \
-        --index-url https://download.pytorch.org/whl/cpu && \
-    pip install --no-cache-dir \
-        --extra-index-url https://download.pytorch.org/whl/cpu \
-        -r requirements.txt
+    pip install --no-cache-dir -r ${REQUIREMENTS}
 
 
 # ---- Stage 2: runtime ----
@@ -31,13 +25,12 @@ FROM python:3.11-slim AS runtime
 
 WORKDIR /app
 
-# Runtime system deps (opencv headless, libgomp for torch)
-# libgl1-mesa-glx was renamed to libgl1 in Ubuntu 22.04+
+# Minimal runtime system libs
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libglib2.0-0 libgl1 libgomp1 \
+    libglib2.0-0 libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy installed packages from the builder stage
+# Copy installed packages from builder
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
@@ -56,12 +49,9 @@ ENV DATABASE_URL="sqlite:///./dev.db" \
     FRAME_HEIGHT="1080" \
     DEVICE="cpu"
 
-# Expose FastAPI port
 EXPOSE 8000
 
 # Run DB migrations then start uvicorn.
-# Using shell form so we can chain commands; production deployments should
-# separate the migration step (run once as an init container or job).
 CMD alembic upgrade head && \
     uvicorn api.main:app \
         --host 0.0.0.0 \
