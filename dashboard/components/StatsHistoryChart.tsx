@@ -42,7 +42,7 @@ export default function StatsHistoryChart({ stats }: Props) {
     .reverse()
     .slice(-8)
     .map((s) => ({
-      match: `${s.home_team.slice(0, 3)} v ${s.away_team.slice(0, 3)}`,
+      match: `${(s.home_team ?? '???').slice(0, 3)} v ${(s.away_team ?? '???').slice(0, 3)}`,
       "Distance (m)": s.distance_covered_m ?? 0,
       Sprints:        s.sprint_count ?? 0,
       Presses:        s.press_count  ?? 0,
