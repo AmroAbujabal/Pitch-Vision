@@ -20,8 +20,8 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     lifespan=lifespan,
-    title="Football AI — Player Analytics API",
-    description="Advanced player profiling for UAE football academies",
+    title="PitchVision — Player Analytics API",
+    description="Computer vision player profiling for amateur and semi-pro soccer clubs",
     version="0.1.0",
     docs_url="/docs",
     redoc_url="/redoc",
