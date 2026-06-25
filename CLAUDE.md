@@ -85,10 +85,11 @@ Single-camera limitations to keep in mind:
 - Next.js 14 dashboard (match list, match detail, player profile + prediction card)
 - **Dockerfile** — CPU-only multi-stage build; `alembic upgrade head` on startup
 - **.dockerignore** — excludes model weights, raw footage, node_modules, .env
-- **GitHub Actions CI** (.github/workflows/ci.yml):
-  - backend: ruff lint + pytest (126 tests)
-  - docker-build: builds image on every push (no push)
+- **GitHub Actions CI** (.github/workflows/ci.yml) — all 3 jobs passing:
+  - backend: ruff lint + pytest (126 tests) using requirements-ci.txt
+  - docker-build: builds API image (requirements-ci.txt, ~30s) on every push
   - dashboard: npm ci + tsc --noEmit
+- **requirements-ci.txt**: slim install for CI/API image (no torch/opencv/paddlepaddle)
 
 ### Single-camera adjustments (Phase 2)
 - `yolo_conf_threshold` lowered 0.5 → 0.35 (phone footage)
@@ -99,6 +100,8 @@ Single-camera limitations to keep in mind:
 
 ## Next Session — Pick Up Here
 **Phases 1–5 complete. 126 tests passing.**
+
+**CI is fully green (backend ✓, docker-build ✓, dashboard ✓).**
 
 **Phase 6 — Terraform / Google Cloud Run** (confirmed target: Cloud Run, scales to zero):
 - Artifact Registry Docker repo
