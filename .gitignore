@@ -50,3 +50,10 @@ dashboard/out/
 .coverage
 htmlcov/
 .pytest_cache/
+
+# Terraform
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/terraform.tfvars
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup

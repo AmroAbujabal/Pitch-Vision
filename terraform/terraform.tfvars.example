@@ -1,0 +1,16 @@
+# Copy this file to terraform.tfvars and fill in your values.
+# terraform.tfvars is gitignored — never commit secrets.
+
+project_id   = "your-gcp-project-id"
+region       = "us-central1"
+image_tag    = "latest"
+
+secret_key   = "replace-with-a-long-random-string"
+
+# Supabase free tier example:
+#   postgresql://postgres:<password>@db.<ref>.supabase.co:5432/postgres
+# Cloud SQL (private IP via VPC connector):
+#   postgresql+asyncpg://pitchvision:<password>@<private-ip>/pitchvision
+database_url = "postgresql+asyncpg://user:password@host:5432/pitchvision"
+
+redis_url    = "redis://your-redis-host:6379/0"
