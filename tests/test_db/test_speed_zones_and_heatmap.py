@@ -13,7 +13,7 @@ Run with: pytest tests/test_db/test_speed_zones_and_heatmap.py -v
 import numpy as np
 import pytest
 
-from metrics.physical import compute_physical_metrics, ZONE_WALK, ZONE_JOG, ZONE_RUN
+from metrics.physical import compute_physical_metrics
 from metrics.heatmap import compute_heatmap
 
 

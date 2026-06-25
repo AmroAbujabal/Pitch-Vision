@@ -6,7 +6,6 @@ Run with: pytest tests/test_detection/ -v
 """
 
 import numpy as np
-import pytest
 
 from detection.detector import (
     Detection,

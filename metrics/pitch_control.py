@@ -221,7 +221,6 @@ def compute_dangerous_zone_occupancy(
     Returns dict: track_id → occupancy score [0, 1]
     """
     pitch_l = settings.pitch_length
-    pitch_w = settings.pitch_width
 
     if home_attack_direction == "right":
         danger_x_min = pitch_l * 0.67    # final third

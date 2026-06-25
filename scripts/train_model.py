@@ -16,7 +16,6 @@ Requires scikit-learn:
 
 import argparse
 import pickle
-from pathlib import Path
 
 from loguru import logger
 
@@ -71,19 +70,16 @@ def main(n_matches: int = 4) -> None:
 
         # Train per-position models
         from sqlalchemy import select
-        from database.models import Player, PlayerMatchStats, Match
-        import numpy as np
+        from database.models import Player
 
         # Re-query to get position labels per sample
         # build_training_dataset doesn't return labels, so we rebuild with positions
-        from database.models import Player
-        from sqlalchemy import select
 
         all_players = session.execute(select(Player)).scalars().all()
         position_map = {p.id: p.position.upper() for p in all_players}
 
         # Rebuild per-position
-        from metrics.features import assemble_player_features, build_training_dataset
+        from metrics.features import assemble_player_features
         from database.models import DevelopmentScore
         from datetime import timezone, timedelta
 

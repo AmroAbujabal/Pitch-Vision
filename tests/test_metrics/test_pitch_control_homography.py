@@ -8,7 +8,6 @@ Run with: pytest tests/test_metrics/test_pitch_control_homography.py -v
 """
 
 import numpy as np
-import pytest
 
 from tracking.types import Track
 from metrics.pitch_control import compute_pitch_control

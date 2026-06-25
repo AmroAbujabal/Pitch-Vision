@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import (
-    Boolean, DateTime, Float, ForeignKey, Integer,
+    DateTime, Float, ForeignKey, Integer,
     String, Text, JSON, Uuid, func,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship

@@ -20,7 +20,6 @@ from metrics.physical import compute_physical_metrics
 from metrics.heatmap import compute_heatmap
 from metrics.formation import detect_formation
 from metrics.pressing import PressAnalyser
-from utils.homography import PitchHomography
 from database.repository import PipelineResult, save_pipeline_results
 from database.session import get_session
 
@@ -78,6 +77,13 @@ def run(
     tracker = PlayerTracker()
     all_tracked_frames = tracker.process_detections(all_frame_detections)
 
+    # Build track lookup once — used by OCR below and physical metrics later
+    all_confirmed: dict[int, object] = {}
+    for tf in all_tracked_frames:
+        for track in tf.confirmed_tracks:
+            if track.track_id not in all_confirmed:
+                all_confirmed[track.track_id] = track
+
     # --- Stage 2b: Jersey OCR ---
     # For each confirmed track, run OCR on the best crop stored by the tracker.
     logger.info("Running jersey OCR...")
@@ -119,14 +125,11 @@ def run(
     logger.info(f"Press stats computed for {len(player_press_stats)} players")
 
     # --- Stage 5: Physical metrics ---
+    # PitchHomography.fit_from_points() needs manual pitch corner annotations.
+    # For now, positions are computed from bbox centres via linear fallback
+    # (pixel / frame_dims * pitch_dims). Replace with homography.pixel_to_pitch()
+    # once real corner annotations are available per match.
     logger.info("Computing physical metrics...")
-    homography = PitchHomography()
-    # fit() will fail without a real broadcast frame; use fit_from_points in
-    # production once manual pitch corner annotations are provided.
-    # For now, compute pitch positions from bbox centres using the naive
-    # linear fallback (homography.pixel_to_pitch via settings dimensions).
-
-    all_confirmed = {}
     for tf in all_tracked_frames:
         for track in tf.confirmed_tracks:
             if track.track_id not in all_confirmed:

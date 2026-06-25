@@ -7,8 +7,6 @@ Uses an in-memory SQLite database — no PostgreSQL required.
 Run with: pytest tests/test_db/test_repository.py -v
 """
 
-import uuid
-import numpy as np
 import pytest
 
 from sqlalchemy import create_engine, select

@@ -9,7 +9,6 @@ TDD tests for jersey OCR wiring:
 Run with: pytest tests/test_pipeline/test_jersey_ocr_wiring.py -v
 """
 
-import uuid
 import pytest
 import numpy as np
 
@@ -17,7 +16,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
-from database.models import Base, Academy, Match, Player, PlayerMatchStats
+from database.models import Base, Academy, Match, Player
 from database.repository import PipelineResult, save_pipeline_results
 from metrics.physical import PhysicalMetrics
 from tracking.types import Track

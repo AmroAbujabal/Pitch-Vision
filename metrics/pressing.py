@@ -11,7 +11,7 @@ Computes all press-related advanced metrics per player:
 from __future__ import annotations
 
 import numpy as np
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 from loguru import logger
 
@@ -190,8 +190,6 @@ class PressAnalyser:
         """
         fps = settings.default_fps
         window = int(settings.press_window_seconds * fps)
-
-        frame_lookup = {f.frame_id: f for f in frames}
 
         for event in self.press_events:
             if turnover_frames is None:

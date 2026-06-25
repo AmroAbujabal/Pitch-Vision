@@ -60,10 +60,10 @@ class JerseyOCR:
 
         # Increase contrast
         lab = cv2.cvtColor(resized, cv2.COLOR_BGR2LAB)
-        l, a, b = cv2.split(lab)
+        l_ch, a_ch, b_ch = cv2.split(lab)
         clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(4, 4))
-        l = clahe.apply(l)
-        enhanced = cv2.merge([l, a, b])
+        l_ch = clahe.apply(l_ch)
+        enhanced = cv2.merge([l_ch, a_ch, b_ch])
         return cv2.cvtColor(enhanced, cv2.COLOR_LAB2BGR)
 
     def _parse_number(self, text: str) -> Optional[int]:

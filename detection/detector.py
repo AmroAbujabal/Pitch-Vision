@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import cv2
 import numpy as np
-import torch
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional

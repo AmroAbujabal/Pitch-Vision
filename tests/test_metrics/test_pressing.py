@@ -11,8 +11,7 @@ import numpy as np
 import pytest
 
 from tracking.types import Track, TrackedFrame
-from metrics.pressing import PressAnalyser, PlayerPressStats
-from utils.homography import PitchHomography
+from metrics.pressing import PressAnalyser
 
 
 # ---------------------------------------------------------------------------
