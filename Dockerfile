@@ -32,8 +32,9 @@ FROM python:3.11-slim AS runtime
 WORKDIR /app
 
 # Runtime system deps (opencv headless, libgomp for torch)
+# libgl1-mesa-glx was renamed to libgl1 in Ubuntu 22.04+
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libglib2.0-0 libgl1-mesa-glx libgomp1 \
+    libglib2.0-0 libgl1 libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy installed packages from the builder stage
