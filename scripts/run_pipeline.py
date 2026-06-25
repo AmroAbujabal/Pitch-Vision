@@ -17,6 +17,8 @@ from detection.jersey_ocr import JerseyOCR
 from tracking.tracker import PlayerTracker
 from metrics.pitch_control import compute_pitch_control
 from metrics.physical import compute_physical_metrics
+from metrics.heatmap import compute_heatmap
+from metrics.formation import detect_formation
 from metrics.pressing import PressAnalyser
 from utils.homography import PitchHomography
 from database.repository import PipelineResult, save_pipeline_results
@@ -131,6 +133,7 @@ def run(
                 all_confirmed[track.track_id] = track
 
     physical_metrics = {}
+    heatmap_by_track = {}
     pitch_control_by_track = {}
 
     # Aggregate pitch control contribution per track across sampled frames
@@ -165,6 +168,12 @@ def run(
             pitch_positions=pitch_pos,
             fps=_fps,
         )
+        heatmap_by_track[tid] = compute_heatmap(pitch_pos)
+
+    # --- Stage 5b: Formation detection (stub) ---
+    home_formation = detect_formation(all_tracked_frames, team="home")
+    away_formation = detect_formation(all_tracked_frames, team="away")
+    logger.info(f"Formation — home: {home_formation}, away: {away_formation}")
 
     # --- Stage 6: Persist to database ---
     logger.info("Persisting results to database...")
@@ -178,6 +187,7 @@ def run(
         press_stats=player_press_stats,
         track_teams=track_teams,
         jersey_numbers=jersey_numbers,
+        heatmap_by_track=heatmap_by_track,
     )
 
     with get_session() as session:

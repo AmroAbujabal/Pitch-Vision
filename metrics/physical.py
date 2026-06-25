@@ -15,6 +15,13 @@ from dataclasses import dataclass
 from config.settings import settings
 
 
+# Speed zone thresholds (m/s)
+ZONE_WALK    = 2.0
+ZONE_JOG     = 4.0
+ZONE_RUN     = 7.0
+# anything >= ZONE_RUN is sprint
+
+
 @dataclass
 class PhysicalMetrics:
     """Physical performance metrics for one player in one match."""
@@ -24,6 +31,7 @@ class PhysicalMetrics:
     distance_covered_m: float
     hi_run_count: int      # distinct bouts above high_intensity_speed threshold
     sprint_count: int      # distinct bouts above sprint_speed threshold
+    speed_zones: dict = None  # {"walk_pct": float, "jog_pct": float, "run_pct": float, "sprint_pct": float}
 
 
 def compute_physical_metrics(
@@ -48,6 +56,10 @@ def compute_physical_metrics(
     """
     n = len(pitch_positions)
 
+    _empty_zones: dict = {
+        "walk_pct": 0.0, "jog_pct": 0.0, "run_pct": 0.0, "sprint_pct": 0.0
+    }
+
     if n < 2:
         return PhysicalMetrics(
             track_id=track_id,
@@ -56,6 +68,7 @@ def compute_physical_metrics(
             distance_covered_m=0.0,
             hi_run_count=0,
             sprint_count=0,
+            speed_zones=_empty_zones,
         )
 
     # Frame-to-frame distances in metres
@@ -70,6 +83,7 @@ def compute_physical_metrics(
 
     hi_run_count = _count_bouts(speeds, hi_speed_threshold)
     sprint_count  = _count_bouts(speeds, sprint_threshold)
+    speed_zones   = _compute_speed_zones(speeds)
 
     return PhysicalMetrics(
         track_id=track_id,
@@ -78,7 +92,36 @@ def compute_physical_metrics(
         distance_covered_m=distance,
         hi_run_count=hi_run_count,
         sprint_count=sprint_count,
+        speed_zones=speed_zones,
     )
+
+
+def _compute_speed_zones(speeds: np.ndarray) -> dict:
+    """
+    Classify each speed sample into a zone and return the fraction of time
+    spent in each zone.
+
+    Zones (m/s):
+        walk   < 2.0
+        jog    2.0 – 4.0
+        run    4.0 – 7.0
+        sprint ≥ 7.0
+    """
+    n = len(speeds)
+    if n == 0:
+        return {"walk_pct": 0.0, "jog_pct": 0.0, "run_pct": 0.0, "sprint_pct": 0.0}
+
+    walk   = float(np.sum(speeds < ZONE_WALK))
+    jog    = float(np.sum((speeds >= ZONE_WALK)  & (speeds < ZONE_JOG)))
+    run    = float(np.sum((speeds >= ZONE_JOG)   & (speeds < ZONE_RUN)))
+    sprint = float(np.sum(speeds >= ZONE_RUN))
+
+    return {
+        "walk_pct":   round(walk   / n, 4),
+        "jog_pct":    round(jog    / n, 4),
+        "run_pct":    round(run    / n, 4),
+        "sprint_pct": round(sprint / n, 4),
+    }
 
 
 def _count_bouts(speeds: np.ndarray, threshold: float) -> int:

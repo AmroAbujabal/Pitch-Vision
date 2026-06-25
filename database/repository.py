@@ -63,6 +63,7 @@ class PipelineResult:
     press_stats: dict[int, PressStatsLike]
     track_teams: dict[int, Optional[str]]
     jersey_numbers: dict[int, int] = field(default_factory=dict)
+    heatmap_by_track: dict[int, dict] = field(default_factory=dict)
 
 
 # ---------------------------------------------------------------------------
@@ -98,9 +99,10 @@ def save_pipeline_results(
     for track_id, physical in result.physical_metrics.items():
         ocr_jersey = result.jersey_numbers.get(track_id)
         player = _get_or_create_player(session, academy_id, track_id, ocr_jersey)
-        press  = result.press_stats.get(track_id)
-        pc     = result.pitch_control_by_track.get(track_id)
-        team   = result.track_teams.get(track_id)
+        press   = result.press_stats.get(track_id)
+        pc      = result.pitch_control_by_track.get(track_id)
+        team    = result.track_teams.get(track_id)
+        heatmap = result.heatmap_by_track.get(track_id)
 
         stats = PlayerMatchStats(
             player_id=player.id,
@@ -112,12 +114,14 @@ def save_pipeline_results(
             distance_covered_m=physical.distance_covered_m,
             hi_run_count=physical.hi_run_count,
             sprint_count=physical.sprint_count,
+            speed_zones=physical.speed_zones,
             # Pressing
             press_count=press.press_count if press else 0,
             press_success_rate=press.press_success_rate if press else 0.0,
             press_trigger_accuracy=press.trigger_accuracy if press else 0.0,
             # Spatial
             pitch_control_contribution=pc,
+            heatmap_data=heatmap,
         )
         session.add(stats)
         session.flush()  # populate stats.id so upsert can reference it

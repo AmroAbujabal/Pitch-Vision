@@ -132,6 +132,7 @@ class PlayerMatchStats(Base):
     distance_covered_m: Mapped[Optional[float]] = mapped_column(Float)
     hi_run_count: Mapped[Optional[int]] = mapped_column(Integer)       # high intensity runs
     sprint_count: Mapped[Optional[int]] = mapped_column(Integer)
+    speed_zones: Mapped[Optional[dict]] = mapped_column(JSON)           # {walk_pct, jog_pct, run_pct, sprint_pct}
     acceleration_profile: Mapped[Optional[dict]] = mapped_column(JSON) # {mean, peak, count}
     fatigue_index: Mapped[Optional[float]] = mapped_column(Float)       # 70-90 vs 0-20 min ratio
 
