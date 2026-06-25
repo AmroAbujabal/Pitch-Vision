@@ -137,4 +137,7 @@ class TestUploadVideo:
         mock_task.delay.assert_called_once_with(
             str(upload_match.id),
             str(upload_match.academy_id),
+            upload_match.fps,
+            upload_match.frame_width,
+            upload_match.frame_height,
         )

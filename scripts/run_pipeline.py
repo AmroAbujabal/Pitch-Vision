@@ -28,8 +28,27 @@ def run(
     match_id: uuid.UUID,
     academy_id: uuid.UUID,
     max_frames: int | None = None,
+    fps: float | None = None,
+    frame_width: int | None = None,
+    frame_height: int | None = None,
 ) -> None:
-    logger.info(f"Starting pipeline for: {video_path}")
+    """
+    Run the full detection → tracking → metrics → persist pipeline.
+
+    fps / frame_width / frame_height default to settings values when not
+    provided. Pass them explicitly when the upload camera differs from the
+    global defaults (e.g. 30fps phone video at 1280×720).
+    """
+    from config.settings import settings as cfg
+
+    _fps = fps if fps is not None else cfg.default_fps
+    _fw  = frame_width  if frame_width  is not None else cfg.frame_width
+    _fh  = frame_height if frame_height is not None else cfg.frame_height
+
+    logger.info(
+        f"Starting pipeline for: {video_path} "
+        f"(fps={_fps}, {_fw}x{_fh})"
+    )
 
     # --- Stage 1: Detection ---
     team_classifier = TeamColorClassifier(n_clusters=3)
@@ -71,6 +90,11 @@ def run(
     logger.info(f"Jersey OCR complete — {len(jersey_numbers)} numbers detected")
 
     # --- Stage 3: Pitch control (sample every 5th frame for speed) ---
+    # Single-camera limitation: Voronoi pitch control assumes all outfield
+    # players are visible. When the camera covers only part of the pitch,
+    # away-team players outside the frame are missing, so home_control_pct
+    # will be inflated. Stats are still useful for intra-team comparisons
+    # within the visible zone.
     logger.info("Computing pitch control...")
     pitch_control_results = []
     for tf in all_tracked_frames[::5]:
@@ -121,24 +145,25 @@ def run(
     }
 
     import numpy as np
-    from config.settings import settings as cfg
 
     for tid, track in all_confirmed.items():
         if len(track.bbox_history) < 2:
             continue
-        # Convert bbox centres to approximate pitch positions (linear fallback)
+        # Convert bbox centres to approximate pitch positions (linear fallback).
+        # Uses per-match frame dimensions so phone video (e.g. 1280×720 @ 30fps)
+        # produces accurate distances without reconfiguring global settings.
         centers = np.array([
             [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2]
             for b in track.bbox_history
         ], dtype=np.float64)
         pitch_pos = np.column_stack([
-            centers[:, 0] / cfg.frame_width  * cfg.pitch_length,
-            centers[:, 1] / cfg.frame_height * cfg.pitch_width,
+            centers[:, 0] / _fw * cfg.pitch_length,
+            centers[:, 1] / _fh * cfg.pitch_width,
         ])
         physical_metrics[tid] = compute_physical_metrics(
             track_id=tid,
             pitch_positions=pitch_pos,
-            fps=cfg.default_fps,
+            fps=_fps,
         )
 
     # --- Stage 6: Persist to database ---
@@ -147,7 +172,7 @@ def run(
 
     result = PipelineResult(
         match_id=match_id,
-        fps=cfg.default_fps,
+        fps=_fps,
         physical_metrics=physical_metrics,
         pitch_control_by_track=pitch_control_by_track,
         press_stats=player_press_stats,
@@ -163,11 +188,24 @@ def run(
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Football AI pipeline")
-    parser.add_argument("--video",      required=True,  type=Path)
-    parser.add_argument("--match-id",   required=True,  type=uuid.UUID)
-    parser.add_argument("--academy-id", required=True,  type=uuid.UUID)
-    parser.add_argument("--max-frames", type=int, default=None)
+    parser = argparse.ArgumentParser(description="PitchVision pipeline — video in, player profiles out")
+    parser.add_argument("--video",        required=True,  type=Path)
+    parser.add_argument("--match-id",     required=True,  type=uuid.UUID)
+    parser.add_argument("--academy-id",   required=True,  type=uuid.UUID)
+    parser.add_argument("--max-frames",   type=int,   default=None)
+    parser.add_argument("--fps",          type=float, default=None,
+                        help="Frame rate of the source video (default: settings.default_fps). "
+                             "Set to 30.0 for phone video.")
+    parser.add_argument("--frame-width",  type=int,   default=None,
+                        help="Pixel width of the source video (default: settings.frame_width).")
+    parser.add_argument("--frame-height", type=int,   default=None,
+                        help="Pixel height of the source video (default: settings.frame_height).")
     args = parser.parse_args()
 
-    run(args.video, args.match_id, args.academy_id, args.max_frames)
+    run(
+        args.video, args.match_id, args.academy_id,
+        max_frames=args.max_frames,
+        fps=args.fps,
+        frame_width=args.frame_width,
+        frame_height=args.frame_height,
+    )

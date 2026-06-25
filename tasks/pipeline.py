@@ -15,9 +15,18 @@ celery_app = Celery("football_ai", broker=settings.redis_url)
 
 
 @celery_app.task(name="tasks.pipeline.process_match", bind=False)
-def process_match(match_id: str, academy_id: str) -> None:
+def process_match(
+    match_id: str,
+    academy_id: str,
+    fps: float = 25.0,
+    frame_width: int = 1920,
+    frame_height: int = 1080,
+) -> None:
     """
     Process a match video through the full pipeline.
+
+    fps/frame_width/frame_height come from the Match record so each upload
+    can specify the source camera's actual resolution and frame rate.
 
     Finds the video at settings.raw_dir/{match_id}.{ext}, runs the pipeline,
     then marks the match "done". On any unhandled exception marks it "failed".
@@ -43,7 +52,8 @@ def process_match(match_id: str, academy_id: str) -> None:
 
         # TODO: uncomment once torch is installed in the active conda env
         # from scripts.run_pipeline import run
-        # run(video_path, mid, uuid.UUID(academy_id))
+        # run(video_path, mid, uuid.UUID(academy_id),
+        #     fps=fps, frame_width=frame_width, frame_height=frame_height)
 
         match = db.get(Match, mid)
         if match is not None:

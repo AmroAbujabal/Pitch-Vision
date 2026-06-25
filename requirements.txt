@@ -22,7 +22,8 @@ filterpy>=1.4.5             # Kalman filter for SORT
 lap>=0.4.0                  # Hungarian algorithm
 
 # API
-fastapi>=0.111.0
+fastapi==0.111.0
+starlette==0.37.2
 uvicorn[standard]>=0.29.0
 python-multipart>=0.0.9
 python-jose[cryptography]>=3.3.0

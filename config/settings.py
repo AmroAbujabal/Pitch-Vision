@@ -17,13 +17,13 @@ class Settings(BaseSettings):
 
     # Detection
     yolo_model: str = "yolov10x.pt"
-    yolo_conf_threshold: float = 0.5
+    yolo_conf_threshold: float = 0.35   # lowered for phone/single-camera footage
     yolo_iou_threshold: float = 0.45
     sam2_model: str = "sam2_hiera_large.pt"
     sam2_config: str = "sam2_hiera_l.yaml"
 
     # Tracking
-    max_lost_frames: int = 30        # frames before dropping a track
+    max_lost_frames: int = 90        # ~3.6s at 25fps — covers players leaving single-camera frame
     reid_threshold: float = 0.6      # cosine similarity cutoff for re-ID
     min_track_length: int = 5        # min frames before a track is confirmed
 

@@ -96,6 +96,8 @@ class Match(Base):
         String(50), default="pending"
     )  # pending | processing | done | failed
     fps: Mapped[float] = mapped_column(Float, default=25.0)
+    frame_width: Mapped[int] = mapped_column(Integer, default=1920)
+    frame_height: Mapped[int] = mapped_column(Integer, default=1080)
     duration_seconds: Mapped[Optional[float]] = mapped_column(Float)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 

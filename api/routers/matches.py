@@ -37,7 +37,9 @@ class MatchCreate(BaseModel):
     away_team: str
     match_date: Optional[datetime] = None
     venue: Optional[str] = None
-    fps: float = 25.0
+    fps: float = 25.0               # set to 30.0 for phone video
+    frame_width: int = 1920
+    frame_height: int = 1080
 
 
 class MatchResponse(BaseModel):
@@ -195,7 +197,13 @@ def upload_video(
     match.processing_status = "processing"
     db.commit()
 
-    process_match.delay(str(match_id), str(match.academy_id))
+    process_match.delay(
+        str(match_id),
+        str(match.academy_id),
+        match.fps,
+        match.frame_width,
+        match.frame_height,
+    )
 
     return {"match_id": str(match_id), "status": "processing"}
 
