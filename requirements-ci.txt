@@ -14,6 +14,7 @@ bcrypt==4.0.1
 # Database
 sqlalchemy>=2.0.0
 alembic>=1.13.0
+psycopg2-binary>=2.9.9   # sync PostgreSQL driver (used by API + alembic)
 
 # Task queue (imported but not executed in tests)
 celery>=5.3.6

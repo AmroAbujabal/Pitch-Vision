@@ -32,6 +32,10 @@ resource "google_cloud_run_v2_service" "api" {
     containers {
       image = local.image
 
+      ports {
+        container_port = 8000
+      }
+
       # 1 vCPU, 2 GiB — sufficient for CPU inference with frame sampling.
       # Increase to 2 vCPU / 4 GiB for faster processing.
       resources {

@@ -99,22 +99,24 @@ Single-camera limitations to keep in mind:
 - Celery task forwards per-match camera params to pipeline
 
 ## Next Session — Pick Up Here
-**Phases 1–5 complete. 126 tests passing.**
+**Phases 1–6 complete. 126 tests passing. API live on Cloud Run.**
 
 **CI is fully green (backend ✓, docker-build ✓, dashboard ✓).**
 
-**Phase 6 — Terraform / Google Cloud Run** (confirmed target: Cloud Run, scales to zero):
-- Artifact Registry Docker repo
-- Cloud Run service (1 vCPU, 2Gi, CPU inference)
-- Environment vars via Cloud Run env (DATABASE_URL must point to PostgreSQL — SQLite won't work on ephemeral Cloud Run FS)
-- `terraform/main.tf`, `variables.tf`, `outputs.tf`, `versions.tf`
+**Phase 6 — Terraform / Google Cloud Run ✓ COMPLETE**
+- Artifact Registry Docker repo: `us-central1-docker.pkg.dev/pitchvision-prod/pitchvision/pitchvision-api`
+- Cloud Run service: `https://pitchvision-api-4hxfthgkna-uc.a.run.app`
+  - 1 vCPU, 2Gi, cpu_idle=true, scales 0–3
+  - Startup probe: GET /health:8000, `container_port = 8000` (critical — Cloud Run defaults to 8080)
+  - DATABASE_URL → `postgresql://` (psycopg2, sync), not `postgresql+asyncpg://`
+  - `requirements-ci.txt` includes `psycopg2-binary` for Alembic + API
+- `terraform/main.tf`, `variables.tf`, `outputs.tf`, `versions.tf`, `terraform.tfvars` (gitignored)
 
 **Remaining backlog (any order after Phase 6):**
-- PostgreSQL + pgvector — required for production / Cloud Run
 - Real pitch homography — `PitchHomography.fit_from_points()` needs manual corner annotations per match
 - Re-ID across occlusions (TransReID/OSNet — needs torch)
-- Arabic UI (`name_ar` fields in schema already)
 - Formation detection — implement once team colour classification is stable
+- pgvector — embedding-based player search (schema placeholder exists)
 
 ## Do Not
 - Commit model weights or raw footage to git
