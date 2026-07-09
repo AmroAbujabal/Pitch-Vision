@@ -1,13 +1,16 @@
 # PitchVision
 
 ## Project Overview
+
 Computer vision pipeline to detect, track, and analytically profile soccer players on a pitch.
 Target market: Amateur and semi-pro soccer clubs in Canada that can't afford Opta/StatsBomb.
 
 ## Business Goal
+
 Sell a coach-facing dashboard + player profile data to clubs running single touchline cameras or phone video. Bilingual product: Arabic + English UI (Arabic planned, English first).
 
 ## Stack
+
 - Python 3.11
 - SAM 2 (Meta) — segmentation
 - YOLOv10 — player detection
@@ -21,32 +24,37 @@ Sell a coach-facing dashboard + player profile data to clubs running single touc
 - GitHub Actions CI/CD
 
 ## Input Assumption
+
 **Single fixed camera** — touchline tripod or phone on a stand. No broadcast infrastructure needed.
+
 - Phone video (MP4, MOV) ✓
 - 720p–4K ✓ (1080p recommended)
 - 25fps / 30fps / 60fps ✓ — stored per match in `Match.fps`
 
 Single-camera limitations to keep in mind:
+
 - Pitch control stats only computed for the visible zone if full width not captured
 - Players leaving the frame are re-identified when they return (up to `max_lost_frames=90` frames)
 - Distance/speed accuracy requires pitch corner coordinates for homography calibration
 
 ## Module Map
-- /detection        → YOLO + SAM 2 pipeline (frame-level player detection + segmentation)
-- /tracking         → Re-ID, multi-object tracking, trajectory storage
-- /metrics          → Physical, pitch control, pressing, development scoring, prediction, heatmap, formation
-- /api              → FastAPI routers, schemas, auth
-- /database         → SQLAlchemy models, Alembic migrations (4 versions)
-- /dashboard        → Next.js 14 coach dashboard
-- /utils            → Video I/O, coordinate transforms, visualization helpers
-- /scripts          → Pipeline runner, seed script, model training, weight download
-- /data             → Raw footage, processed clips, model weights (gitignored)
-- /tests            → Pytest test suite (126 passing, torch-free)
-- /alembic          → DB migrations (initial → password_hash → frame_dims → speed_zones)
-- Dockerfile        → CPU-only multi-stage build
+
+- /detection → YOLO + SAM 2 pipeline (frame-level player detection + segmentation)
+- /tracking → Re-ID, multi-object tracking, trajectory storage
+- /metrics → Physical, pitch control, pressing, development scoring, prediction, heatmap, formation
+- /api → FastAPI routers, schemas, auth
+- /database → SQLAlchemy models, Alembic migrations (4 versions)
+- /dashboard → Next.js 14 coach dashboard
+- /utils → Video I/O, coordinate transforms, visualization helpers
+- /scripts → Pipeline runner, seed script, model training, weight download
+- /data → Raw footage, processed clips, model weights (gitignored)
+- /tests → Pytest test suite (126 passing, torch-free)
+- /alembic → DB migrations (initial → password_hash → frame_dims → speed_zones)
+- Dockerfile → CPU-only multi-stage build
 - .github/workflows/ci.yml → lint + test + docker-build + tsc on every push
 
 ## Key Conventions
+
 - All coordinates are normalized [0,1] relative to pitch dimensions unless stated otherwise
 - Pitch reference frame: origin bottom-left, x = width, y = length
 - Player IDs are persistent across a match session; re-assigned each new match
@@ -55,6 +63,7 @@ Single-camera limitations to keep in mind:
 - "soccer" in all user-facing copy (Canadian market); "football" only in internal/academic references
 
 ## Environment
+
 - Python: `/usr/local/bin/python3.11` (no conda on this machine)
 - Run tests: `/usr/local/bin/python3.11 -m pytest tests/test_api/ tests/test_db/ -q`
 - Start API: `/usr/local/bin/python3.11 -m uvicorn api.main:app --reload`
@@ -65,13 +74,14 @@ Single-camera limitations to keep in mind:
 ## Completed
 
 ### Core pipeline
+
 - Detection pipeline (YOLO + SAM 2)
 - Jersey OCR + team color classification
 - Physical metrics: distance, speed, sprints, hi-intensity runs, **speed zones** (walk/jog/run/sprint %)
 - Pitch control (Voronoi-based; partial-pitch limitation documented)
 - Pressing analysis (press count, success rate, trigger accuracy)
 - **Heatmap grid accumulation** (metrics/heatmap.py → PlayerMatchStats.heatmap_data JSON)
-- **Formation detection stub** (metrics/formation.py — returns "unknown", full TODO)
+- **Formation detection** (metrics/formation.py) — direction-aware `detect_formation(frames, team, *, own_goal_end, min_players)`. Correct-or-silent: labels the shape only when `own_goal_end` ("low"/"high") is supplied, else returns "unknown" (no guessing — a [4 clustered]+[1 isolated] shape is mirror-identical for GK vs lone striker, so direction is required). Orients depth → drops the deepest player only if isolated by a keeper-like gap (GK_ISOLATION_M=12) → gap-clusters outfield (LINE_TOLERANCE_M=12) → "4-3-3". 18 unit tests. **BLOCKED for production on: (a) attack direction from homography goal ends, (b) pipeline populating `track.pitch_pos` — currently unset, so the function is a no-op in run_pipeline.py. Not yet wired into DB/API/dashboard.**
 - DevelopmentScore auto-computed per player per week after each match
 - Prediction model pipeline: Ridge regression per position group (GK/DEF/MID/FWD)
   - metrics/features.py + scripts/train_model.py
@@ -79,6 +89,7 @@ Single-camera limitations to keep in mind:
   - Dashboard PredictionCard component on player profile page
 
 ### Infrastructure
+
 - Database schema + 4 Alembic migrations (SQLite dev, PostgreSQL prod)
 - FastAPI REST API with JWT auth
 - Video upload endpoint → Celery async pipeline
@@ -92,6 +103,7 @@ Single-camera limitations to keep in mind:
 - **requirements-ci.txt**: slim install for CI/API image (no torch/opencv/paddlepaddle)
 
 ### Single-camera adjustments (Phase 2)
+
 - `yolo_conf_threshold` lowered 0.5 → 0.35 (phone footage)
 - `max_lost_frames` raised 30 → 90 (~3.6s at 25fps)
 - `Match` stores `fps`, `frame_width`, `frame_height` per upload
@@ -99,11 +111,13 @@ Single-camera limitations to keep in mind:
 - Celery task forwards per-match camera params to pipeline
 
 ## Next Session — Pick Up Here
+
 **Phases 1–6 complete. 126 tests passing. API live on Cloud Run.**
 
 **CI is fully green (backend ✓, docker-build ✓, dashboard ✓).**
 
 **Phase 6 — Terraform / Google Cloud Run ✓ COMPLETE**
+
 - Artifact Registry Docker repo: `us-central1-docker.pkg.dev/pitchvision-prod/pitchvision/pitchvision-api`
 - Cloud Run service: `https://pitchvision-api-4hxfthgkna-uc.a.run.app`
   - 1 vCPU, 2Gi, cpu_idle=true, scales 0–3
@@ -113,12 +127,14 @@ Single-camera limitations to keep in mind:
 - `terraform/main.tf`, `variables.tf`, `outputs.tf`, `versions.tf`, `terraform.tfvars` (gitignored)
 
 **Remaining backlog (any order after Phase 6):**
-- Real pitch homography — `PitchHomography.fit_from_points()` needs manual corner annotations per match
+
+- Real pitch homography — `PitchHomography.fit_from_points()` needs manual corner annotations per match. **Unblocks formation direction** (own-goal end per team).
 - Re-ID across occlusions (TransReID/OSNet — needs torch)
-- Formation detection — implement once team colour classification is stable
+- Formation detection — core `detect_formation()` DONE (direction-aware, 18 tests). To go live: (1) populate `track.pitch_pos` in run_pipeline.py, (2) derive `own_goal_end` per team from homography, (3) store on match → API → dashboard
 - pgvector — embedding-based player search (schema placeholder exists)
 
 ## Do Not
+
 - Commit model weights or raw footage to git
 - Use absolute paths — always use pathlib relative to PROJECT_ROOT
 - Skip type hints — all functions must be typed

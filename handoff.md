@@ -1,6 +1,6 @@
 # PitchVision — Handoff
 
-_Last updated: 2026-07-05_
+_Last updated: 2026-07-08_
 
 ## Goal
 
@@ -10,33 +10,39 @@ Ship a computer-vision pipeline that detects, tracks, and analytically profiles 
 
 - **All 6 phases complete.** 126 tests passing, CI green (backend ✓ / docker-build ✓ / dashboard ✓).
 - **API is live** on Google Cloud Run: `https://pitchvision-api-4hxfthgkna-uc.a.run.app` (GET /health → 200). Scales 0–3, 1 vCPU / 2Gi.
-- Working tree is **clean**; latest commit `9c0f9ef fix(phase-6): commit working Cloud Run deploy fixes`.
-- Commit is **local only — not yet pushed** to `origin/main` (awaiting user confirmation to push).
+- Latest commit `e098bba docs: add handoff.md session state log` — **pushed to `origin/main`** (2026-07-06). Git is fully synced, no loose ends.
 - Core pipeline live: YOLOv10 + SAM 2 detection, SORT tracking, PaddleOCR jersey numbers, physical/speed-zone/heatmap/pitch-control/pressing metrics, DevelopmentScore, Ridge-regression prediction per position group.
+- **Formation detection implemented** (`metrics/formation.py`, 18 tests) — direction-aware, correct-or-silent design. Blocked for production on homography (attack direction) + `track.pitch_pos` population in the pipeline. Uncommitted.
+- Local test note: `test_metrics/` needs `cv2` (not installed here / not in CI). Made `conftest.py` cv2-import lazy → `test_formation` + `test_physical` now run locally; `test_pressing`/`test_pitch_control*` still need opencv. CI runs only `test_api/` + `test_db/` (126 passing).
 
 ## Active Files
 
 - `CLAUDE.md` — project overview + "Next Session" pointer (source of truth for status).
 - `terraform/main.tf` — Cloud Run service def; `container_port = 8000` is load-bearing.
 - `requirements-ci.txt` — CI/prod deps; includes `psycopg2-binary` (sync Postgres for Alembic + API).
-- `metrics/formation.py` — stub returning "unknown" (next feature candidate).
+- `metrics/formation.py` — direction-aware `detect_formation(..., own_goal_end=...)`; orient → conditional GK drop → depth-gap line clustering.
+- `tests/test_metrics/test_formation.py` — 18 unit tests (incl. regressions: lone striker, GK off-camera, winger stagger, direction-unknown, crash guard).
+- `tests/test_metrics/conftest.py` — homography/cv2 import made lazy so cv2-free metric tests collect.
 - `metrics/` — physical.py, heatmap.py, pitch control, pressing, features.py, development scoring.
 - `terraform/terraform.tfvars` — gitignored, holds Supabase creds.
 
 ## Changes Made
 
 - **2026-07-05** — Committed the uncommitted Phase-6 deploy fixes (`9c0f9ef`): `container_port = 8000` (Cloud Run defaults to 8080), `psycopg2-binary` in requirements-ci.txt, CLAUDE.md marked Phase 6 complete. Ran karpathy-check (clean; diff_surgeon "noise" was doc-update false positive). Created this handoff.md.
+- **2026-07-06** — Pushed `9c0f9ef` + `e098bba` (handoff.md) to `origin/main`.
+- **2026-07-07** — Implemented `detect_formation()` (TDD). Made `test_metrics/conftest.py` cv2-import lazy (unblocks `test_formation` + `test_physical` locally).
+- **2026-07-08** — High-effort code-review flagged the position-only heuristic as direction-ambiguous (GK vs lone striker) and dead-on-arrival (pipeline never sets `pitch_pos`). Verified findings, then **redesigned to direction-aware** (`own_goal_end` param, correct-or-silent) + fixed tolerance/guard/min_players. 18 tests green; CI 126 + physical 13 green, no regression. **Not yet committed/pushed.**
 
 ## Failed Attempts
 
-- _(none recorded yet this session)_
+- **Position-only GK-isolation orientation (rejected 2026-07-08)** — first formation impl guessed the own-goal end from which depth-extreme was more isolated. Fails on mirror-symmetric shapes: a lone striker is indistinguishable from a goalkeeper, so 4-5-1 reversed to "5-4-1" and an off-camera GK dropped a real defender. Lesson: attack direction cannot be inferred from positions alone — it must be supplied (homography goal ends). Replaced with the direction-aware design.
 - Historical deploy gotchas already solved & documented in CLAUDE.md: Cloud Run defaulting to port 8080; `postgresql+asyncpg://` breaking sync SQLAlchemy/Alembic (must use `postgresql://`); missing `psycopg2-binary`.
 
 ## Next Steps
 
-1. **Push** `9c0f9ef` to `origin/main` (pending user confirmation).
-2. Backlog (any order):
-   - Formation detection — implement `metrics/formation.py` (team-colour classification now stable).
+1. **Resolve code-review findings on formation.py, then commit + push** (run karpathy-check on the staged diff first, per workflow).
+2. **Wire formation into the product** — call `detect_formation()` in the pipeline → store on the match (schema/migration) → expose via API → surface on the dashboard.
+3. Remaining backlog (any order):
    - Real pitch homography — `PitchHomography.fit_from_points()` needs manual corner annotations per match.
    - Re-ID across occlusions — TransReID/OSNet (needs torch).
    - pgvector — embedding-based player search (schema placeholder exists).
