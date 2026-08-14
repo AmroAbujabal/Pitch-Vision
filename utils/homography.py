@@ -10,7 +10,10 @@ Usage:
     pitch_pos = h.pixel_to_pitch(px)        # (x_px, y_px) → (x_m, y_m)
     pixel_pos = h.pitch_to_pixel(pt)        # (x_m, y_m) → (x_px, y_px)
 
-    # Or supply explicit correspondences (e.g. from manual annotation)
+    # Or supply manually annotated pitch corners (TL → TR → BR → BL)
+    h.fit_from_corners(pixel_corners)
+
+    # Or supply explicit correspondences
     h.fit_from_points(pixel_pts, pitch_pts)
 """
 
@@ -144,6 +147,18 @@ class PitchHomography:
             logger.warning("PitchHomography.fit: could not detect pitch corners")
             return False
         return self._solve(src_pts, self._standard_corners())
+
+    def fit_from_corners(self, pixel_corners: np.ndarray) -> bool:
+        """
+        Fit from the four pitch corners in pixel space, ordered TL → TR → BR → BL.
+
+        The manual-annotation counterpart to fit(): the caller supplies the
+        corners instead of detecting them, and they map to the standard pitch
+        rectangle. Returns True on success.
+        """
+        if len(pixel_corners) != 4:
+            raise ValueError("Need exactly 4 pitch corners, ordered TL → TR → BR → BL")
+        return self._solve(np.float32(pixel_corners), self._standard_corners())
 
     def fit_from_points(
         self,

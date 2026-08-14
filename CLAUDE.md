@@ -48,15 +48,15 @@ Single-camera limitations to keep in mind:
 - /utils → Video I/O, coordinate transforms, visualization helpers
 - /scripts → Pipeline runner, seed script, model training, weight download
 - /data → Raw footage, processed clips, model weights (gitignored)
-- /tests → Pytest test suite (126 passing, torch-free)
-- /alembic → DB migrations (initial → password_hash → frame_dims → speed_zones)
+- /tests → Pytest test suite (135 passing in CI scope, torch-free)
+- /alembic → DB migrations (initial → password_hash → frame_dims → speed_zones → pitch_calibration)
 - Dockerfile → CPU-only multi-stage build
 - .github/workflows/ci.yml → lint + test + docker-build + tsc on every push
 
 ## Key Conventions
 
 - All coordinates are normalized [0,1] relative to pitch dimensions unless stated otherwise
-- Pitch reference frame: origin bottom-left, x = width, y = length
+- Pitch reference frame: origin bottom-left, **x = length (goal-to-goal, 0–105 m), y = width (0–68 m)**. Depth/attacking direction is the x axis — this is what `utils/homography.py`, `metrics/pitch_control.py` and `metrics/pressing.py` all assume.
 - Player IDs are persistent across a match session; re-assigned each new match
 - All metric outputs include a `confidence` float [0,1]
 - Frame rate and resolution stored per match (Match.fps / .frame_width / .frame_height)
@@ -65,7 +65,8 @@ Single-camera limitations to keep in mind:
 ## Environment
 
 - Python: `/usr/local/bin/python3.11` (no conda on this machine)
-- Run tests: `/usr/local/bin/python3.11 -m pytest tests/test_api/ tests/test_db/ -q`
+- Run tests (CI scope): `/usr/local/bin/python3.11 -m pytest tests/test_api/ tests/test_db/ -q` → 135 pass
+- Wider local run: `/usr/local/bin/python3.11 -m pytest tests/ -q --ignore=tests/test_detection` → 235 pass (needs `opencv-python-headless` + `alembic`, both installed locally 2026-08-13; neither `tests/test_metrics/`, `tests/test_utils/` nor `tests/test_pipeline/` runs in CI, since requirements-ci.txt has no opencv)
 - Start API: `/usr/local/bin/python3.11 -m uvicorn api.main:app --reload`
 - GPU: configure in config/settings.py (CUDA device index); default is CPU for single-camera uploads
 - Model weights stored in data/model_weights/ (gitignored)
@@ -81,7 +82,8 @@ Single-camera limitations to keep in mind:
 - Pitch control (Voronoi-based; partial-pitch limitation documented)
 - Pressing analysis (press count, success rate, trigger accuracy)
 - **Heatmap grid accumulation** (metrics/heatmap.py → PlayerMatchStats.heatmap_data JSON)
-- **Formation detection** (metrics/formation.py) — direction-aware `detect_formation(frames, team, *, own_goal_end, min_players)`. Correct-or-silent: labels the shape only when `own_goal_end` ("low"/"high") is supplied, else returns "unknown" (no guessing — a [4 clustered]+[1 isolated] shape is mirror-identical for GK vs lone striker, so direction is required). Orients depth → drops the deepest player only if isolated by a keeper-like gap (GK_ISOLATION_M=12) → gap-clusters outfield (LINE_TOLERANCE_M=12) → "4-3-3". 18 unit tests. **BLOCKED for production on: (a) attack direction from homography goal ends, (b) pipeline populating `track.pitch_pos` — currently unset, so the function is a no-op in run_pipeline.py. Not yet wired into DB/API/dashboard.**
+- **Formation detection** (metrics/formation.py) — **LIVE end to end.** Direction-aware `detect_formation(frames, team, *, own_goal_end, min_players)`. Correct-or-silent: labels the shape only when `own_goal_end` ("low"/"high") is supplied, else returns "unknown" (no guessing — a [4 clustered]+[1 isolated] shape is mirror-identical for GK vs lone striker, so direction is required). Orients depth → drops the deepest player only if isolated by a keeper-like gap (GK_ISOLATION_M=12) → gap-clusters outfield (LINE_TOLERANCE_M=12) → "4-3-3". Reads `track.pitch_history` (true match average), falling back to `track.pitch_pos`. 19 unit tests. Persisted to `Match.home_formation` / `away_formation` → match summary API → dashboard KPI card.
+- **Pitch calibration** — `Match.pitch_corners` (four corners in the video's pixel space, TL→TR→BR→BL) + `Match.home_defends_end`, set via `PUT /api/v1/matches/{id}/calibration`. The pipeline fits `PitchHomography.fit_from_corners()` from them, passes it to pitch control + pressing, and populates `track.pitch_history` / `pitch_pos` for every confirmed track; without corners everything falls back to a linear pixel→metre stretch. `home_defends_end` cannot be derived from the corners (goal positions don't say who defends which one), so it is coach-supplied — **"low" is the goal on the left of frame, "high" the goal on the right**, fixed by the corner ordering (first corner → x=0). Getting it backwards mirrors the shape. It is ignored without a working homography, and the away team gets the opposite end. Projected positions are clamped to the pitch ±`PITCH_MARGIN_M` so a point past the horizon can't become a 46 m/s sprint.
 - DevelopmentScore auto-computed per player per week after each match
 - Prediction model pipeline: Ridge regression per position group (GK/DEF/MID/FWD)
   - metrics/features.py + scripts/train_model.py
@@ -112,9 +114,13 @@ Single-camera limitations to keep in mind:
 
 ## Next Session — Pick Up Here
 
-**Phases 1–6 complete. 126 tests passing. API live on Cloud Run.**
+**Phases 1–6 complete. 135 tests passing in CI scope. API live on Cloud Run.**
 
-**CI is fully green (backend ✓, docker-build ✓, dashboard ✓).**
+**Formation detection is live end to end** — calibration API → homography →
+`pitch_history` → formation → DB → summary API → dashboard card.
+
+**CI note:** the backend lint job was red from `a5f88be` until 2026-08-13 (an
+unused `pytest` import tripped `ruff check .`). Fixed; `ruff check .` is clean.
 
 **Phase 6 — Terraform / Google Cloud Run ✓ COMPLETE**
 
@@ -128,10 +134,13 @@ Single-camera limitations to keep in mind:
 
 **Remaining backlog (any order after Phase 6):**
 
-- Real pitch homography — `PitchHomography.fit_from_points()` needs manual corner annotations per match. **Unblocks formation direction** (own-goal end per team).
+- **Match endpoints don't scope to the caller's academy** — `/summary`, `/players`, `/upload-video` and `/calibration` all do a bare `db.get(Match, match_id)` with no `academy_id` check, so any authenticated academy can read (and, via `/calibration`, now _write_) another's match. `list_matches` is the only one that filters. Fix across all of them at once; `tests/test_api/conftest.py` seeds an academy whose id differs from `_DUMMY_ACADEMY_ID`, so the fixtures need aligning too.
+- **Corner-picker UI** — the calibration API exists but nothing in the dashboard sets it. A coach currently needs a raw `PUT /calibration` call. Needs a click-four-corners-on-a-still screen.
+- **Re-processing after calibration** — uploading a video starts processing immediately, so calibration saved afterwards only applies to the next run. Either let calibration re-enqueue the pipeline, or split upload from "start processing".
+- **Half-time end swap** — `home_defends_end` describes the whole video. A full-match upload has the teams swapping ends at the break, so one half's formation will be mirrored. Fine for single-half clips; needs a per-half split for full matches.
 - Re-ID across occlusions (TransReID/OSNet — needs torch)
-- Formation detection — core `detect_formation()` DONE (direction-aware, 18 tests). To go live: (1) populate `track.pitch_pos` in run_pipeline.py, (2) derive `own_goal_end` per team from homography, (3) store on match → API → dashboard
 - pgvector — embedding-based player search (schema placeholder exists)
+- Three copies of the linear pixel→metre fallback now exist (`scripts/run_pipeline.py` `to_pitch`, `metrics/pressing.py:90`, `metrics/pitch_control.py:174`); the latter two use global settings rather than per-match dimensions. Worth unifying once homography is the normal path.
 
 ## Do Not
 

@@ -24,6 +24,9 @@ export interface MatchSummary {
   away_top_speed_ms: number;
   home_press_count: number;
   away_press_count: number;
+  /** null until the match is processed; "unknown" when the shape can't be labelled. */
+  home_formation: string | null;
+  away_formation: string | null;
 }
 
 export interface MatchPlayer {

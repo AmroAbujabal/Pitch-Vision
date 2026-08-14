@@ -50,12 +50,17 @@ def process_match(
             logger.warning(f"process_match: no video file found for match {match_id}")
             return
 
+        match = db.get(Match, mid)
+
         # TODO: uncomment once torch is installed in the active conda env
+        # Calibration comes off the Match record: the pitch corners give a real
+        # homography, home_defends_end lets formations be labelled.
         # from scripts.run_pipeline import run
         # run(video_path, mid, uuid.UUID(academy_id),
-        #     fps=fps, frame_width=frame_width, frame_height=frame_height)
+        #     fps=fps, frame_width=frame_width, frame_height=frame_height,
+        #     pitch_corners=match.pitch_corners if match else None,
+        #     home_defends_end=match.home_defends_end if match else None)
 
-        match = db.get(Match, mid)
         if match is not None:
             match.processing_status = "done"
             db.commit()

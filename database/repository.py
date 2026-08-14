@@ -55,6 +55,8 @@ class PipelineResult:
         press_stats:            track_id → PressStatsLike (may be partial)
         track_teams:            track_id → "home" | "away" | None
         jersey_numbers:         track_id → jersey number from OCR (may be partial)
+        home_formation:         detected shape e.g. "4-3-3", or "unknown"
+        away_formation:         detected shape e.g. "4-3-3", or "unknown"
     """
     match_id: uuid.UUID
     fps: float
@@ -64,6 +66,8 @@ class PipelineResult:
     track_teams: dict[int, Optional[str]]
     jersey_numbers: dict[int, int] = field(default_factory=dict)
     heatmap_by_track: dict[int, dict] = field(default_factory=dict)
+    home_formation: Optional[str] = None
+    away_formation: Optional[str] = None
 
 
 # ---------------------------------------------------------------------------
@@ -85,7 +89,8 @@ def save_pipeline_results(
       player profiles via jersey OCR + manual confirmation.
     - Creates one PlayerMatchStats row with all available metrics.
 
-    Updates Match.processing_status to "done".
+    Writes the detected formations onto the Match and sets
+    Match.processing_status to "done".
 
     Returns the number of PlayerMatchStats rows created.
     """
@@ -128,6 +133,8 @@ def save_pipeline_results(
         _upsert_development_score(session, player.id, stats, week)
         rows_created += 1
 
+    match.home_formation = result.home_formation
+    match.away_formation = result.away_formation
     match.processing_status = "done"
     session.flush()
 

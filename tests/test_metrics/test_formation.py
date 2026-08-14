@@ -8,7 +8,6 @@ Run with: pytest tests/test_metrics/test_formation.py -v
 """
 
 import numpy as np
-import pytest
 
 from tracking.types import Track, TrackedFrame
 from metrics.formation import detect_formation
@@ -31,27 +30,32 @@ def make_team(team: str, positions: list, start_id: int = 0) -> list:
 
 
 def frames_from(tracks: list, n_frames: int = 3) -> list:
-    """Repeat the same static tracks across n_frames (mean position == pitch_pos)."""
+    """Repeat the same static tracks across n_frames.
+
+    Mirrors production: the tracker puts the *same* Track objects in every
+    TrackedFrame, so a track's position is read once, not once per frame.
+    """
     return [TrackedFrame(frame_id=f, tracks=tracks) for f in range(n_frames)]
 
 
-# Canonical layouts. Pitch is 105 (x, width) × 68 (y, length used as depth).
-# GK sits nearest own goal (low y); lines advance up-pitch. own_goal_end="low".
+# Canonical layouts in project pitch coordinates: x = length (goal-to-goal,
+# 0-105 m) is the depth axis, y = width (0-68 m) is lateral. GK sits nearest the
+# own goal (low x); lines advance up-pitch. own_goal_end="low".
 def layout_442() -> list:
     return make_team("home", [
-        (52, 4),                                   # GK
-        (15, 20), (38, 20), (67, 20), (90, 20),    # 4 defenders
-        (15, 45), (38, 45), (67, 45), (90, 45),    # 4 midfielders
-        (38, 66), (67, 66),                        # 2 forwards
+        (5, 34),                                   # GK
+        (22, 10), (22, 26), (22, 42), (22, 58),    # 4 defenders
+        (52, 10), (52, 26), (52, 42), (52, 58),    # 4 midfielders
+        (80, 26), (80, 42),                        # 2 forwards
     ])
 
 
 def layout_433() -> list:
     return make_team("home", [
-        (52, 4),                                   # GK
-        (15, 20), (38, 20), (67, 20), (90, 20),    # 4 defenders
-        (30, 45), (52, 45), (75, 45),              # 3 midfielders
-        (20, 66), (52, 66), (85, 66),              # 3 forwards
+        (5, 34),                                   # GK
+        (22, 10), (22, 26), (22, 42), (22, 58),    # 4 defenders
+        (52, 20), (52, 34), (52, 48),              # 3 midfielders
+        (80, 14), (80, 34), (80, 54),              # 3 forwards
     ])
 
 
@@ -87,14 +91,14 @@ class TestFormationDetection:
             frames_from(layout_433()), team="home", own_goal_end="low"
         ) == "4-3-3"
 
-    def test_detects_when_team_defends_high_y_end(self):
-        """Away team attacks the opposite direction (own goal at high y).
+    def test_detects_when_team_defends_high_x_end(self):
+        """Away team attacks the opposite direction (own goal at high x).
         Formation string is still reported defence -> attack."""
-        positions = [(x, 68 - y) for (x, y) in [
-            (52, 4),
-            (15, 20), (38, 20), (67, 20), (90, 20),
-            (15, 45), (38, 45), (67, 45), (90, 45),
-            (38, 66), (67, 66),
+        positions = [(105 - x, y) for (x, y) in [
+            (5, 34),
+            (22, 10), (22, 26), (22, 42), (22, 58),
+            (52, 10), (52, 26), (52, 42), (52, 58),
+            (80, 26), (80, 42),
         ]]
         away = make_team("away", positions)
         assert detect_formation(
@@ -105,10 +109,10 @@ class TestFormationDetection:
         """Regression: a 4-5-1 with an isolated striker used to be reversed to
         '5-4-1' by gap-based orientation. With direction known it is correct."""
         team = make_team("home", [
-            (52, 4),                                       # GK
-            (15, 20), (38, 20), (67, 20), (90, 20),        # 4 defenders
-            (10, 45), (32, 45), (52, 45), (72, 45), (94, 45),  # 5 midfielders
-            (52, 66),                                      # lone striker
+            (5, 34),                                           # GK
+            (22, 10), (22, 26), (22, 42), (22, 58),            # 4 defenders
+            (52, 6), (52, 20), (52, 34), (52, 48), (52, 62),   # 5 midfielders
+            (80, 34),                                          # lone striker
         ])
         assert detect_formation(
             frames_from(team), team="home", own_goal_end="low"
@@ -122,7 +126,7 @@ class TestFormationDetection:
 
     def test_ignores_unconfirmed_tracks(self):
         home = layout_442()
-        ghost = make_track(200, "home", (52, 34))
+        ghost = make_track(200, "home", (34, 52))
         ghost.is_confirmed = False
         frames = frames_from(home + [ghost])
         assert detect_formation(frames, team="home", own_goal_end="low") == "4-4-2"
@@ -137,9 +141,9 @@ class TestGoalkeeper:
     def test_keeper_off_camera_keeps_all_outfielders(self):
         """No isolated keeper present -> do NOT drop a real defender as GK."""
         outfield_only = make_team("home", [
-            (15, 20), (38, 20), (67, 20), (90, 20),    # 4 defenders (deepest)
-            (30, 45), (52, 45), (75, 45),              # 3 midfielders
-            (20, 66), (52, 66), (85, 66),              # 3 forwards
+            (22, 10), (22, 26), (22, 42), (22, 58),    # 4 defenders (deepest)
+            (52, 20), (52, 34), (52, 48),              # 3 midfielders
+            (80, 14), (80, 34), (80, 54),              # 3 forwards
         ])
         # 10 outfielders, no keeper -> "4-3-3", not "3-3-3" with a dropped back.
         assert detect_formation(
@@ -159,13 +163,13 @@ class TestGoalkeeper:
 class TestLineTolerance:
 
     def test_intra_line_stagger_not_oversplit(self):
-        """Regression: wingers at 62 and a striker at 66 (a normal stagger)
+        """Regression: wingers at 72 and a striker at 80 (a normal stagger)
         must stay one line, not split into '4-3-2-1'."""
         team = make_team("home", [
-            (52, 4),                                   # GK
-            (15, 20), (38, 20), (67, 20), (90, 20),    # 4 defenders
-            (30, 42), (52, 42), (75, 42),              # 3 midfielders
-            (18, 62), (86, 62), (52, 66),              # wingers + advanced striker
+            (5, 34),                                   # GK
+            (22, 10), (22, 26), (22, 42), (22, 58),    # 4 defenders
+            (48, 20), (48, 34), (48, 48),              # 3 midfielders
+            (72, 14), (72, 54), (80, 34),              # wingers + advanced striker
         ])
         assert detect_formation(
             frames_from(team), team="home", own_goal_end="low"
@@ -182,7 +186,7 @@ class TestUnknownCases:
         assert detect_formation([], team="home", own_goal_end="low") == "unknown"
 
     def test_too_few_players_returns_unknown(self):
-        few = make_team("home", [(52, 4), (20, 20), (60, 20)])  # 3 < min_players
+        few = make_team("home", [(5, 34), (22, 20), (22, 48)])  # 3 < min_players
         assert detect_formation(
             frames_from(few), team="home", own_goal_end="low"
         ) == "unknown"
@@ -200,7 +204,7 @@ class TestUnknownCases:
     def test_single_player_low_min_players_does_not_crash(self):
         """Regression: min_players=1 + a single track used to IndexError in
         orientation. It must return 'unknown' instead."""
-        one = make_team("home", [(52, 4)])
+        one = make_team("home", [(5, 34)])
         assert detect_formation(
             frames_from(one), team="home", own_goal_end="low", min_players=1
         ) == "unknown"
@@ -212,16 +216,27 @@ class TestUnknownCases:
 
 class TestAggregation:
 
-    def test_averages_positions_across_frames(self):
-        base = layout_442()
-        frames = []
-        for f, dy in enumerate([-2.0, 0.0, 2.0]):  # symmetric jitter -> mean unchanged
-            jittered = [
-                make_track(t.track_id, "home", (t.pitch_pos[0], t.pitch_pos[1] + dy))
-                for t in base
+    def test_uses_mean_of_pitch_history(self):
+        """Depth is the mean over a track's pitch_history, not its latest
+        position. pitch_pos here is a misleading final-frame snapshot with the
+        whole team bunched on halfway — using it would collapse the shape."""
+        tracks = []
+        for t in layout_442():
+            depth, lateral = t.pitch_pos
+            # Symmetric jitter around the true depth -> mean is unchanged.
+            t.pitch_history = [
+                np.array([depth + d, lateral], dtype=float) for d in (-2.0, 0.0, 2.0)
             ]
-            frames.append(TrackedFrame(frame_id=f, tracks=jittered))
-        assert detect_formation(frames, team="home", own_goal_end="low") == "4-4-2"
+            t.pitch_pos = np.array([52.0, lateral], dtype=float)
+            tracks.append(t)
+        assert detect_formation(
+            frames_from(tracks), team="home", own_goal_end="low"
+        ) == "4-4-2"
+
+    def test_falls_back_to_pitch_pos_without_history(self):
+        assert detect_formation(
+            frames_from(layout_442()), team="home", own_goal_end="low"
+        ) == "4-4-2"
 
 
 # ---------------------------------------------------------------------------

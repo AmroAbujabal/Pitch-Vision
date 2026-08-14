@@ -7,9 +7,12 @@ Detecting a formation requires knowing which way the team attacks: a shape of
 [four clustered players] + [one isolated player] is mirror-identical whether the
 lone player is the goalkeeper or a lone striker. Position data alone cannot break
 that symmetry, so the attacking direction — the team's own-goal end along the
-depth (y) axis — must be supplied by the caller (from pitch homography / goal
+depth (x) axis — must be supplied by the caller (from pitch homography / goal
 coordinates). When it is unknown, detection is declined ("unknown") rather than
 guessed, because a confidently-wrong formation is worse than none for a coach.
+
+Pitch coordinates follow the project convention: x = length (goal-to-goal,
+0–105 m), y = width (0–68 m). Depth is therefore x.
 
 Given the own-goal end, detection is:
 1. Aggregate each confirmed track's mean depth for the target team.
@@ -27,7 +30,6 @@ Returns "unknown" when direction is unknown or there is too little data.
 from __future__ import annotations
 
 import numpy as np
-from collections import defaultdict
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -54,8 +56,8 @@ def detect_formation(
     """
     Detect the formation for *team* across *tracked_frames*.
 
-    own_goal_end: which end of the depth (y) axis holds the team's own goal —
-        "low" (own goal near y=0) or "high" (own goal near max y). Required:
+    own_goal_end: which end of the depth (x) axis holds the team's own goal —
+        "low" (own goal near x=0) or "high" (own goal near max x). Required:
         when None (direction unknown) the result is "unknown", by design.
     min_players: minimum confirmed tracks with position data (goalkeeper
         included) needed to attempt a label.
@@ -79,26 +81,38 @@ def detect_formation(
 
 
 def _mean_depths(tracked_frames: list["TrackedFrame"], team: str) -> np.ndarray:
-    """Mean along-pitch depth (y) per confirmed track of *team*, unsorted."""
-    sums: dict[int, float] = defaultdict(float)
-    counts: dict[int, int] = defaultdict(int)
+    """Mean along-pitch depth (x) per confirmed track of *team*, unsorted.
+
+    Every TrackedFrame holds references to the same live Track objects, so each
+    track is read once rather than re-summed per frame. pitch_history is the
+    real per-frame record and gives a true match average; pitch_pos is only the
+    latest position, used as a fallback for tracks with no history.
+
+    That "read once" assumes the tracker's shape — one Track object shared
+    across frames, carrying its own history. Frames built from independent
+    per-frame snapshots instead (a distinct Track per frame, no history) yield
+    the first frame's positions, not an average.
+    """
+    depths: dict[int, float] = {}
 
     for frame in tracked_frames:
         for track in frame.confirmed_tracks:
-            if track.team != team or track.pitch_pos is None:
+            if track.team != team or track.track_id in depths:
                 continue
-            sums[track.track_id] += float(track.pitch_pos[1])  # y == depth axis
-            counts[track.track_id] += 1
+            if track.pitch_history:
+                positions = np.asarray(track.pitch_history, dtype=float)
+                depths[track.track_id] = float(positions[:, 0].mean())
+            elif track.pitch_pos is not None:
+                depths[track.track_id] = float(track.pitch_pos[0])
 
-    depths = [sums[tid] / counts[tid] for tid in sums]
-    return np.array(depths, dtype=float)
+    return np.array(list(depths.values()), dtype=float)
 
 
 def _orient_to_own_goal(depths: np.ndarray, own_goal_end: str) -> np.ndarray:
     """Return depths sorted ascending from the own goal (index 0 = deepest)."""
     s = np.sort(depths)
     if own_goal_end == "high":
-        s = np.sort(s.max() - s)  # own goal was at the high-y end; flip
+        s = np.sort(s.max() - s)  # own goal was at the high-x end; flip
     return s
 
 

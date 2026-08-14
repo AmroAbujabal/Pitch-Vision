@@ -99,6 +99,22 @@ class Match(Base):
     frame_width: Mapped[int] = mapped_column(Integer, default=1920)
     frame_height: Mapped[int] = mapped_column(Integer, default=1080)
     duration_seconds: Mapped[Optional[float]] = mapped_column(Float)
+
+    # Camera calibration — the four pitch corners in this video's pixel space,
+    # ordered TL -> TR -> BR -> BL, as [[x, y], ...]. Feeds
+    # PitchHomography.fit_from_points(); without it the pipeline falls back to
+    # a linear pixel->metre approximation.
+    pitch_corners: Mapped[Optional[list]] = mapped_column(JSON)
+    # Which end of the pitch length axis the home team defends: "low" | "high".
+    # The corner ordering above fixes what these mean — the first corner (TL)
+    # maps to x=0, so "low" is the goal on the left of frame, "high" the goal on
+    # the right. Cannot be derived from the corners: goal positions don't say
+    # who defends which one. Without it formation detection stays "unknown".
+    home_defends_end: Mapped[Optional[str]] = mapped_column(String(4))
+
+    # Detected formations, e.g. "4-3-3", or "unknown". Written by the pipeline.
+    home_formation: Mapped[Optional[str]] = mapped_column(String(20))
+    away_formation: Mapped[Optional[str]] = mapped_column(String(20))
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
     academy: Mapped[Academy] = relationship("Academy", back_populates="matches")

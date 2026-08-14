@@ -44,6 +44,14 @@ function KpiCard({
   );
 }
 
+// Formation is null before the match is processed, and "unknown" when it has no
+// pitch calibration or too few tracked players. A coach should see the gap
+// rather than a guessed shape.
+function formatFormation(value: string | null): string {
+  if (!value) return "—";
+  return value === "unknown" ? "Unknown" : value;
+}
+
 // ── Page ─────────────────────────────────────────────────────
 export default async function MatchDetailPage({ params }: Props) {
   let summary, players;
@@ -56,8 +64,13 @@ export default async function MatchDetailPage({ params }: Props) {
     return (
       <main id="main-content" className="py-8">
         <div className="rounded-xl border border-red-200 bg-red-50 p-6">
-          <p className="text-sm font-semibold text-red-700">Match not found or API unreachable</p>
-          <Link href="/" className="mt-2 inline-block text-sm text-red-600 underline underline-offset-2">
+          <p className="text-sm font-semibold text-red-700">
+            Match not found or API unreachable
+          </p>
+          <Link
+            href="/"
+            className="mt-2 inline-block text-sm text-red-600 underline underline-offset-2"
+          >
             ← Back to matches
           </Link>
         </div>
@@ -67,10 +80,14 @@ export default async function MatchDetailPage({ params }: Props) {
 
   return (
     <main id="main-content" className="space-y-5">
-
       {/* Breadcrumb */}
-      <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs text-slate-400">
-        <Link href="/" className="hover:text-slate-700 transition-colors">Matches</Link>
+      <nav
+        aria-label="Breadcrumb"
+        className="flex items-center gap-1.5 text-xs text-slate-400"
+      >
+        <Link href="/" className="hover:text-slate-700 transition-colors">
+          Matches
+        </Link>
         <ChevronRight className="h-3 w-3" aria-hidden="true" />
         <span className="text-slate-700 font-medium">
           {summary.home_team} vs {summary.away_team}
@@ -105,7 +122,14 @@ export default async function MatchDetailPage({ params }: Props) {
       </div>
 
       {/* KPI grid */}
-      <div className="grid gap-3 sm:grid-cols-3">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <KpiCard
+          label="Formation"
+          homeValue={formatFormation(summary.home_formation)}
+          awayValue={formatFormation(summary.away_formation)}
+          homeLabel={summary.home_team}
+          awayLabel={summary.away_team}
+        />
         <KpiCard
           label="Top Speed"
           homeValue={`${summary.home_top_speed_ms.toFixed(1)}`}
@@ -132,11 +156,15 @@ export default async function MatchDetailPage({ params }: Props) {
           <h2 id="player-table-heading" className="section-title">
             Player breakdown
           </h2>
-          <span className="text-2xs text-slate-400">Click any column to sort</span>
+          <span className="text-2xs text-slate-400">
+            Click any column to sort
+          </span>
         </div>
         {players.length === 0 ? (
           <div className="card py-12 text-center">
-            <p className="text-sm text-slate-400">No player data available yet</p>
+            <p className="text-sm text-slate-400">
+              No player data available yet
+            </p>
           </div>
         ) : (
           <PlayerTable players={players} />

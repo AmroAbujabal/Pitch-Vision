@@ -28,6 +28,10 @@ class MatchSummaryResponse(BaseModel):
     away_top_speed_ms: float
     home_press_count: int
     away_press_count: int
+    # None until the match has been processed; "unknown" when the shape could
+    # not be labelled (no calibration, or too few tracked players).
+    home_formation: Optional[str] = None
+    away_formation: Optional[str] = None
 
 
 class MatchPlayerResponse(BaseModel):

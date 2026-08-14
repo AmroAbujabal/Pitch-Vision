@@ -214,3 +214,86 @@ class TestFitFromSyntheticFrame:
         pitch = fitted.pixel_to_pitch(pixel)
         back  = fitted.pitch_to_pixel(pitch)
         np.testing.assert_allclose(back, pixel, atol=3.0)
+
+
+# ---------------------------------------------------------------------------
+# fit_from_corners — manual pitch corner annotations
+# ---------------------------------------------------------------------------
+
+# A tilted touchline view: the far touchline is shorter than the near one.
+TOUCHLINE_CORNERS = np.float32([
+    [200.0,  300.0],   # TL
+    [1720.0, 300.0],   # TR
+    [1900.0, 950.0],   # BR
+    [20.0,   950.0],   # BL
+])
+
+
+class TestFitFromCorners:
+
+    @pytest.fixture(scope="class")
+    def fitted_corners(self) -> PitchHomography:
+        h = PitchHomography()
+        assert h.fit_from_corners(TOUCHLINE_CORNERS)
+        return h
+
+    def test_corners_map_to_the_standard_pitch_rectangle(self, fitted_corners):
+        mapped = fitted_corners.batch_pixel_to_pitch(TOUCHLINE_CORNERS)
+        np.testing.assert_allclose(
+            mapped,
+            np.array([[0, 0], [105, 0], [105, 68], [0, 68]], dtype=float),
+            atol=1e-3,
+        )
+
+    def test_x_is_the_length_axis(self, fitted_corners):
+        """Convention check: x spans 0-105 (goal to goal), y spans 0-68."""
+        mapped = fitted_corners.batch_pixel_to_pitch(TOUCHLINE_CORNERS)
+        assert mapped[:, 0].max() > mapped[:, 1].max()
+
+    def test_wrong_corner_count_raises(self):
+        with pytest.raises(ValueError):
+            PitchHomography().fit_from_corners(TOUCHLINE_CORNERS[:3])
+
+
+# ---------------------------------------------------------------------------
+# Cross-module contract: homography output feeds formation detection
+# ---------------------------------------------------------------------------
+
+class TestCornersToFormation:
+    """
+    The pipeline projects tracked players through fit_from_corners() and hands
+    the result to detect_formation(). Both modules must agree that depth is the
+    x axis — if either flips, the shape collapses into a single line. This test
+    is the guard on that shared convention.
+    """
+
+    # 4-3-3 defending the low-x end: GK, back four, midfield three, front three.
+    LAYOUT_433 = np.array([
+        [5.0, 34.0],
+        [22.0, 10.0], [22.0, 26.0], [22.0, 42.0], [22.0, 58.0],
+        [52.0, 20.0], [52.0, 34.0], [52.0, 48.0],
+        [80.0, 14.0], [80.0, 34.0], [80.0, 54.0],
+    ])
+
+    def test_shape_survives_a_projection_round_trip(self):
+        from tracking.types import Track, TrackedFrame
+        from metrics.formation import detect_formation
+
+        h = PitchHomography()
+        assert h.fit_from_corners(TOUCHLINE_CORNERS)
+
+        # Pitch metres -> camera pixels (what a detector would see) -> back.
+        pixels = h.batch_pitch_to_pixel(self.LAYOUT_433)
+        recovered = h.batch_pixel_to_pitch(pixels)
+
+        tracks = []
+        for i, pos in enumerate(recovered):
+            t = Track(track_id=i, bbox=np.zeros(4, dtype=float), team="home")
+            t.is_confirmed = True
+            t.pitch_history = [pos]
+            tracks.append(t)
+
+        frames = [TrackedFrame(frame_id=f, tracks=tracks) for f in range(3)]
+        assert detect_formation(
+            frames, team="home", own_goal_end="low"
+        ) == "4-3-3"

@@ -7,11 +7,11 @@ Match ingestion and analytics endpoints.
 import shutil
 from pathlib import Path
 from uuid import UUID
-from typing import Optional
+from typing import Literal, Optional
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -66,6 +66,26 @@ class MatchListResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class MatchCalibration(BaseModel):
+    """
+    Camera calibration for one match.
+
+    pitch_corners:    the four pitch corners in this video's pixel space,
+                      ordered TL -> TR -> BR -> BL, as [[x, y], ...].
+    home_defends_end: which end of the pitch length (x) axis the home team
+                      defends. The corner ordering fixes what these mean:
+                      the first corner (TL) maps to x=0, so **"low" is the goal
+                      on the left of frame and "high" the goal on the right**.
+                      Not derivable from the corners — goal positions don't say
+                      who defends which one — and getting it backwards mirrors
+                      the reported shape (a 4-2-3-1 comes back as "1-3-2-4").
+    """
+    pitch_corners: list[tuple[float, float]] = Field(..., min_length=4, max_length=4)
+    home_defends_end: Literal["low", "high"]
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
@@ -92,6 +112,35 @@ def create_match(match: MatchCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(record)
     return record
+
+
+@router.put("/{match_id}/calibration", response_model=MatchCalibration)
+def set_calibration(
+    match_id: UUID,
+    calibration: MatchCalibration,
+    db: Session = Depends(get_db),
+):
+    """
+    Set the pitch corners and defended end for a match.
+
+    Together these let the pipeline map pixels to real metres (homography) and
+    label formations. Without them, positions fall back to a linear pixel→metre
+    approximation and formations stay "unknown".
+
+    Set this before uploading the video: uploading starts processing straight
+    away, so calibration saved afterwards only takes effect on the next run. The
+    corners come from the camera's fixed framing, so a still from any match shot
+    at that ground works.
+    """
+    match = db.get(Match, match_id)
+    if match is None:
+        raise _MATCH_NOT_FOUND
+
+    match.pitch_corners = calibration.pitch_corners
+    match.home_defends_end = calibration.home_defends_end
+    db.commit()
+    db.refresh(match)
+    return match
 
 
 @router.get("/{match_id}/summary", response_model=MatchSummaryResponse)
@@ -134,6 +183,8 @@ def get_match_summary(match_id: UUID, db: Session = Depends(get_db)):
         away_top_speed_ms=_max([s.top_speed_ms for s in away]),
         home_press_count=_sum([s.press_count for s in home]),
         away_press_count=_sum([s.press_count for s in away]),
+        home_formation=match.home_formation,
+        away_formation=match.away_formation,
     )
 
 
