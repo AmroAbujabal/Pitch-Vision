@@ -94,6 +94,8 @@ Single-camera limitations to keep in mind:
 
 - Database schema + 4 Alembic migrations (SQLite dev, PostgreSQL prod)
 - FastAPI REST API with JWT auth
+- **Match routes are tenant-scoped** — every per-match route depends on `get_scoped_match`, which 404s (not 403, so a caller can't confirm which match ids exist) when the match belongs to another academy. `list_matches` and `create_match` take the academy from the bearer token, never from the query string or request body. `tests/test_api/test_tenant_isolation.py` holds that line.
+  - **Two visible contract changes** from that fix (2026-08-14): `GET /matches/` no longer requires `academy_id` — a missing one now returns 200 scoped to the token instead of 422, and a supplied one is ignored. `POST /matches/` dropped `academy_id` from the body; it is silently ignored (pydantic `extra="ignore"`), not rejected.
 - Video upload endpoint → Celery async pipeline
 - Next.js 14 dashboard (match list, match detail, player profile + prediction card)
 - **Dockerfile** — CPU-only multi-stage build; `alembic upgrade head` on startup
@@ -134,7 +136,7 @@ unused `pytest` import tripped `ruff check .`). Fixed; `ruff check .` is clean.
 
 **Remaining backlog (any order after Phase 6):**
 
-- **Match endpoints don't scope to the caller's academy** — `/summary`, `/players`, `/upload-video` and `/calibration` all do a bare `db.get(Match, match_id)` with no `academy_id` check, so any authenticated academy can read (and, via `/calibration`, now _write_) another's match. `list_matches` is the only one that filters. Fix across all of them at once; `tests/test_api/conftest.py` seeds an academy whose id differs from `_DUMMY_ACADEMY_ID`, so the fixtures need aligning too.
+- **Player endpoints don't scope to the caller's academy** — `api/routers/players.py` (`/players/{id}/stats`, `/profile`, `/heatmap`, `/prediction`) loads by player id with no `academy_id` check, and `create_player` still takes `academy_id` from the request body. Same class of bug as the match routes, which were fixed 2026-08-14 with the `get_scoped_match` dependency; players wants the equivalent `get_scoped_player`.
 - **Corner-picker UI** — the calibration API exists but nothing in the dashboard sets it. A coach currently needs a raw `PUT /calibration` call. Needs a click-four-corners-on-a-still screen.
 - **Re-processing after calibration** — uploading a video starts processing immediately, so calibration saved afterwards only applies to the next run. Either let calibration re-enqueue the pipeline, or split upload from "start processing".
 - **Half-time end swap** — `home_defends_end` describes the whole video. A full-match upload has the teams swapping ends at the break, so one half's formation will be mirrored. Fine for single-half clips; needs a per-half split for full matches.

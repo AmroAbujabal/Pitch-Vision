@@ -19,8 +19,11 @@ from database.models import Academy, Match
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def upload_match(db_session):
-    """A fresh 'pending' match committed to the in-memory DB."""
+def upload_match(db_session, auth_academy):
+    """
+    A fresh 'pending' match committed to the in-memory DB, owned by the academy
+    the fake token authenticates as — upload is scoped to the caller's academy.
+    """
     from sqlalchemy import select
 
     academy = db_session.execute(select(Academy)).scalar_one_or_none()
@@ -28,6 +31,7 @@ def upload_match(db_session):
         academy = Academy(name="Upload FC", city="Abu Dhabi", country="UAE", tier="pro")
         db_session.add(academy)
         db_session.flush()
+    auth_academy["id"] = academy.id
 
     match = Match(
         academy_id=academy.id,

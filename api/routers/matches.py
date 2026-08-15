@@ -10,7 +10,7 @@ from uuid import UUID
 from typing import Literal, Optional
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -27,12 +27,36 @@ router = APIRouter(dependencies=[Depends(get_current_academy_id)])
 _MATCH_NOT_FOUND = HTTPException(status_code=404, detail="Match not found")
 
 
+def get_scoped_match(
+    match_id: UUID,
+    db: Session = Depends(get_db),
+    academy_id: UUID = Depends(get_current_academy_id),
+) -> Match:
+    """
+    Load a match, but only if it belongs to the calling academy.
+
+    Every per-match route depends on this rather than calling db.get() itself,
+    so a match can't be read or written across academies. A match owned by
+    someone else is reported as 404, not 403 — telling a caller "this exists but
+    isn't yours" would leak which match ids are real.
+    """
+    match = db.get(Match, match_id)
+    if match is None or match.academy_id != academy_id:
+        raise _MATCH_NOT_FOUND
+    return match
+
+
 # ---------------------------------------------------------------------------
 # Schemas
 # ---------------------------------------------------------------------------
 
 class MatchCreate(BaseModel):
-    academy_id: UUID
+    # No academy_id — ownership is taken from the caller's token, not the body.
+    # Pydantic's default extra="ignore" is deliberate here: a client that still
+    # sends academy_id gets it silently dropped rather than a 422, so older
+    # callers keep working. The field is powerless either way (see
+    # test_body_academy_id_cannot_reassign_ownership); this only decides whether
+    # they're told. Switch to extra="forbid" if the API ever wants to be strict.
     home_team: str
     away_team: str
     match_date: Optional[datetime] = None
@@ -92,10 +116,17 @@ class MatchCalibration(BaseModel):
 
 @router.get("/", response_model=list[MatchListResponse])
 def list_matches(
-    academy_id: UUID = Query(..., description="Filter matches by academy"),
     db: Session = Depends(get_db),
+    academy_id: UUID = Depends(get_current_academy_id),
 ):
-    """List all matches for an academy, newest first."""
+    """
+    List the calling academy's matches, newest first.
+
+    The academy comes from the bearer token, never from the request — a
+    client-supplied academy_id would let any caller list another academy's
+    matches. An academy_id query parameter is accepted and ignored for
+    backwards compatibility with existing dashboard builds.
+    """
     rows = db.execute(
         select(Match)
         .where(Match.academy_id == academy_id)
@@ -105,9 +136,18 @@ def list_matches(
 
 
 @router.post("/", response_model=MatchResponse, status_code=201)
-def create_match(match: MatchCreate, db: Session = Depends(get_db)):
-    """Register a new match. Video upload is a separate step."""
-    record = Match(**match.model_dump())
+def create_match(
+    match: MatchCreate,
+    db: Session = Depends(get_db),
+    academy_id: UUID = Depends(get_current_academy_id),
+):
+    """
+    Register a new match. Video upload is a separate step.
+
+    Ownership comes from the bearer token, so a match cannot be created under
+    another academy.
+    """
+    record = Match(**match.model_dump(), academy_id=academy_id)
     db.add(record)
     db.commit()
     db.refresh(record)
@@ -116,8 +156,8 @@ def create_match(match: MatchCreate, db: Session = Depends(get_db)):
 
 @router.put("/{match_id}/calibration", response_model=MatchCalibration)
 def set_calibration(
-    match_id: UUID,
     calibration: MatchCalibration,
+    match: Match = Depends(get_scoped_match),
     db: Session = Depends(get_db),
 ):
     """
@@ -132,10 +172,6 @@ def set_calibration(
     corners come from the camera's fixed framing, so a still from any match shot
     at that ground works.
     """
-    match = db.get(Match, match_id)
-    if match is None:
-        raise _MATCH_NOT_FOUND
-
     match.pitch_corners = calibration.pitch_corners
     match.home_defends_end = calibration.home_defends_end
     db.commit()
@@ -144,17 +180,16 @@ def set_calibration(
 
 
 @router.get("/{match_id}/summary", response_model=MatchSummaryResponse)
-def get_match_summary(match_id: UUID, db: Session = Depends(get_db)):
+def get_match_summary(
+    match: Match = Depends(get_scoped_match),
+    db: Session = Depends(get_db),
+):
     """
     Aggregated match stats for the dashboard match card.
     Returns team-level pitch control, top speed, and press counts.
     """
-    match = db.get(Match, match_id)
-    if match is None:
-        raise _MATCH_NOT_FOUND
-
     all_stats = db.execute(
-        select(PlayerMatchStats).where(PlayerMatchStats.match_id == match_id)
+        select(PlayerMatchStats).where(PlayerMatchStats.match_id == match.id)
     ).scalars().all()
 
     home = [s for s in all_stats if s.team == "home"]
@@ -189,19 +224,18 @@ def get_match_summary(match_id: UUID, db: Session = Depends(get_db)):
 
 
 @router.get("/{match_id}/players", response_model=list[MatchPlayerResponse])
-def get_match_players(match_id: UUID, db: Session = Depends(get_db)):
+def get_match_players(
+    match: Match = Depends(get_scoped_match),
+    db: Session = Depends(get_db),
+):
     """
     All players and their stats for a match.
     Used to populate the match player table on the dashboard.
     """
-    match = db.get(Match, match_id)
-    if match is None:
-        raise _MATCH_NOT_FOUND
-
     rows = db.execute(
         select(PlayerMatchStats, Player)
         .join(Player, PlayerMatchStats.player_id == Player.id)
-        .where(PlayerMatchStats.match_id == match_id)
+        .where(PlayerMatchStats.match_id == match.id)
         .order_by(PlayerMatchStats.team, Player.name)
     ).all()
 
@@ -225,15 +259,11 @@ def get_match_players(match_id: UUID, db: Session = Depends(get_db)):
 
 @router.post("/{match_id}/upload-video", status_code=202)
 def upload_video(
-    match_id: UUID,
     file: UploadFile = File(...),
+    match: Match = Depends(get_scoped_match),
     db: Session = Depends(get_db),
 ):
     """Accept a video file, save it to disk, and enqueue the processing pipeline."""
-    match = db.get(Match, match_id)
-    if match is None:
-        raise _MATCH_NOT_FOUND
-
     suffix = Path(file.filename).suffix.lower()
     if suffix not in ALLOWED_VIDEO_EXTENSIONS:
         raise HTTPException(
@@ -241,7 +271,7 @@ def upload_video(
             detail=f"Unsupported format. Allowed: {', '.join(sorted(ALLOWED_VIDEO_EXTENSIONS))}",
         )
 
-    dest = settings.raw_dir / f"{match_id}{suffix}"
+    dest = settings.raw_dir / f"{match.id}{suffix}"
     with dest.open("wb") as out:
         shutil.copyfileobj(file.file, out)
 
@@ -249,20 +279,17 @@ def upload_video(
     db.commit()
 
     process_match.delay(
-        str(match_id),
+        str(match.id),
         str(match.academy_id),
         match.fps,
         match.frame_width,
         match.frame_height,
     )
 
-    return {"match_id": str(match_id), "status": "processing"}
+    return {"match_id": str(match.id), "status": "processing"}
 
 
 @router.get("/{match_id}/processing-status")
-def get_processing_status(match_id: UUID, db: Session = Depends(get_db)):
+def get_processing_status(match: Match = Depends(get_scoped_match)):
     """Poll the processing status of an uploaded match video."""
-    match = db.get(Match, match_id)
-    if match is None:
-        raise _MATCH_NOT_FOUND
-    return {"match_id": match_id, "status": match.processing_status}
+    return {"match_id": match.id, "status": match.processing_status}

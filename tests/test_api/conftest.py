@@ -56,7 +56,19 @@ _DUMMY_ACADEMY_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
 
 
 @pytest.fixture
-def client(SessionFactory) -> TestClient:
+def auth_academy() -> dict:
+    """
+    Which academy the fake bearer token belongs to.
+
+    A mutable holder so `seeded` can point it at the academy it creates. Match
+    routes are scoped to the caller's academy, so a token for some unrelated
+    id would 404 on every seeded record.
+    """
+    return {"id": _DUMMY_ACADEMY_ID}
+
+
+@pytest.fixture
+def client(SessionFactory, auth_academy) -> TestClient:
     """TestClient with DB and auth dependencies overridden for testing."""
     def override_get_db():
         db = SessionFactory()
@@ -66,7 +78,8 @@ def client(SessionFactory) -> TestClient:
             db.close()
 
     def override_auth():
-        return _DUMMY_ACADEMY_ID
+        # Read at request time, so fixture ordering with `seeded` doesn't matter.
+        return auth_academy["id"]
 
     app.dependency_overrides[get_db] = override_get_db
     app.dependency_overrides[get_current_academy_id] = override_auth
@@ -80,14 +93,18 @@ def client(SessionFactory) -> TestClient:
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def seeded(db_session) -> dict:
+def seeded(db_session, auth_academy) -> dict:
     """
     Insert a minimal set of records and return their IDs.
     Returns: {academy, match, home_player, away_player, home_stats, away_stats}
+
+    Points the fake token at the academy it creates, so `client` is authorised
+    for these records.
     """
     academy = Academy(name="Test FC", city="Dubai", country="UAE", tier="pro")
     db_session.add(academy)
     db_session.flush()
+    auth_academy["id"] = academy.id
 
     match = Match(
         academy_id=academy.id,

@@ -16,7 +16,13 @@ async function apiFetch<T>(path: string): Promise<T> {
 
 export const api = {
   matches: {
-    /** All matches for an academy, newest first. */
+    /**
+     * The calling academy's matches, newest first.
+     *
+     * The server scopes this by bearer token and ignores academy_id — it is
+     * still sent so older API builds keep working. Passing someone else's id
+     * does nothing.
+     */
     list: (academyId: string) =>
       apiFetch<MatchListItem[]>(`/api/v1/matches/?academy_id=${academyId}`),
 

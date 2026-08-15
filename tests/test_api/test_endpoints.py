@@ -37,15 +37,18 @@ class TestListMatches:
         assert row["away_team"] == "Al Jazira"
         assert row["processing_status"] == "done"
 
-    def test_unknown_academy_returns_empty_list(self, client, seeded):
+    def test_foreign_academy_id_in_query_is_ignored(self, client, seeded):
+        """The listing is scoped by the bearer token. A client-supplied
+        academy_id must not be able to select another academy's matches."""
         data = client.get(
             "/api/v1/matches/?academy_id=00000000-0000-0000-0000-000000000000"
         ).json()
-        assert data == []
+        assert [r["id"] for r in data] == [str(seeded["match"].id)]
 
-    def test_missing_academy_id_returns_422(self, client, seeded):
+    def test_no_academy_id_needed(self, client, seeded):
         resp = client.get("/api/v1/matches/")
-        assert resp.status_code == 422
+        assert resp.status_code == 200
+        assert [r["id"] for r in resp.json()] == [str(seeded["match"].id)]
 
 
 # ---------------------------------------------------------------------------
