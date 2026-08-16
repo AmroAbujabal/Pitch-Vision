@@ -1,8 +1,9 @@
 """
 tests/test_api/test_tenant_isolation.py
 
-Every match route must be scoped to the calling academy. These tests hold that
-line: a match owned by another academy is invisible, not merely unwritable.
+Every match and player route must be scoped to the calling academy. These tests
+hold that line: a record owned by another academy is invisible, not merely
+unwritable.
 
 Run with: pytest tests/test_api/test_tenant_isolation.py -v
 """
@@ -11,7 +12,7 @@ import io
 
 import pytest
 
-from database.models import Academy, Match
+from database.models import Academy, Match, Player, PlayerMatchStats
 
 
 CORNERS = [[100.0, 400.0], [1820.0, 400.0], [1900.0, 1000.0], [20.0, 1000.0]]
@@ -119,6 +120,77 @@ class TestCreateIsOwnedByTheCaller:
             json={
                 "home_team": "Planted",
                 "away_team": "Match",
+                "academy_id": "00000000-0000-0000-0000-000000000000",
+            },
+        )
+        assert resp.status_code == 201
+        assert resp.json()["academy_id"] == str(seeded["academy"].id)
+
+
+# ---------------------------------------------------------------------------
+# Players — same rules
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def foreign_player(db_session, foreign_match) -> Player:
+    """A player of the rival academy, with one match's stats to read."""
+    player = Player(
+        academy_id=foreign_match.academy_id,
+        name="Rival Winger",
+        position="LW",
+        jersey_number=11,
+    )
+    db_session.add(player)
+    db_session.flush()
+
+    db_session.add(
+        PlayerMatchStats(
+            player_id=player.id,
+            match_id=foreign_match.id,
+            team="home",
+            distance_covered_m=8800.0,
+            top_speed_ms=9.1,
+            heatmap_data={"grid": [[1]]},
+        )
+    )
+    db_session.commit()
+    return player
+
+
+class TestForeignPlayerIsInvisible:
+
+    @pytest.mark.parametrize("path", ["stats", "profile", "prediction"])
+    def test_read_returns_404(self, client, foreign_player, path):
+        resp = client.get(f"/api/v1/players/{foreign_player.id}/{path}")
+        assert resp.status_code == 404
+
+    def test_heatmap_returns_404(self, client, foreign_player, foreign_match):
+        resp = client.get(
+            f"/api/v1/players/{foreign_player.id}/heatmap?match_id={foreign_match.id}"
+        )
+        assert resp.status_code == 404
+
+    def test_404_not_403(self, client, foreign_player):
+        """403 would confirm the id exists, letting a caller enumerate players."""
+        resp = client.get(f"/api/v1/players/{foreign_player.id}/profile")
+        assert resp.status_code == 404
+        assert "not found" in resp.json()["detail"].lower()
+
+
+class TestCreatePlayerIsOwnedByTheCaller:
+
+    _PLAYER = {"name": "New Signing", "position": "CB"}
+
+    def test_player_belongs_to_the_token_academy(self, client, seeded):
+        resp = client.post("/api/v1/players/", json=self._PLAYER)
+        assert resp.status_code == 201
+        assert resp.json()["academy_id"] == str(seeded["academy"].id)
+
+    def test_body_academy_id_cannot_reassign_ownership(self, client, seeded):
+        resp = client.post(
+            "/api/v1/players/",
+            json={
+                **self._PLAYER,
                 "academy_id": "00000000-0000-0000-0000-000000000000",
             },
         )

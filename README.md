@@ -131,7 +131,7 @@ Base URL: `http://localhost:8000` · Docs: `/docs`
 ### Players
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/api/v1/players/` | Register a player |
+| `POST` | `/api/v1/players/` | Register a player (owned by the token's academy — an `academy_id` in the body is ignored) |
 | `GET` | `/api/v1/players/{id}/stats` | Match stats history |
 | `GET` | `/api/v1/players/{id}/profile` | Bio + latest stats + development trend |
 | `GET` | `/api/v1/players/{id}/heatmap?match_id=` | Heatmap grid for one match |

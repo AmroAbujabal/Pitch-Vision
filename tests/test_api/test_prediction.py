@@ -8,6 +8,7 @@ Run with: pytest tests/test_api/test_prediction.py -v
 
 from __future__ import annotations
 
+import pickle
 import uuid
 from datetime import datetime, timezone, timedelta
 from unittest.mock import patch
@@ -22,11 +23,12 @@ from database.models import Academy, Match, Player, PlayerMatchStats, Developmen
 # ---------------------------------------------------------------------------
 
 @pytest.fixture
-def player_with_history(db_session):
+def player_with_history(db_session, auth_academy):
     """Player with 5 matches of stats + a DevelopmentScore — enough to predict."""
     academy = Academy(name="Predict FC", city="Abu Dhabi", country="UAE", tier="pro")
     db_session.add(academy)
     db_session.flush()
+    auth_academy["id"] = academy.id
 
     player = Player(academy_id=academy.id, name="Test Player", position="MID")
     db_session.add(player)
@@ -70,13 +72,14 @@ def player_with_history(db_session):
 
 
 @pytest.fixture
-def player_no_history(db_session):
+def player_no_history(db_session, auth_academy):
     """Player with no match stats."""
     academy = db_session.query(Academy).first()
     if academy is None:
         academy = Academy(name="Empty FC", city="Dubai", country="UAE", tier="starter")
         db_session.add(academy)
         db_session.flush()
+    auth_academy["id"] = academy.id
     player = Player(academy_id=academy.id, name="No History", position="GK")
     db_session.add(player)
     db_session.commit()
@@ -160,3 +163,40 @@ class TestPlayerPrediction:
                 f"/api/v1/players/{player_with_history.id}/prediction"
             ).json()
         assert data["confidence"] < 0.5
+
+
+# ---------------------------------------------------------------------------
+# _load_model path handling
+# ---------------------------------------------------------------------------
+
+class TestLoadModelPathIsNotCallerControlled:
+    """`position` is free text set at player creation and the file it names is
+    pickle.load-ed, so it must not be able to point outside _MODEL_DIR."""
+
+    def test_letters_still_select_the_per_position_model(self, tmp_path):
+        from api.routers import players
+
+        (tmp_path / "prediction_GK.pkl").write_bytes(pickle.dumps({"m": "gk"}))
+        players._load_model.cache_clear()
+        with patch.object(players, "_MODEL_DIR", tmp_path):
+            assert players._load_model("GK") == {"m": "gk"}
+        players._load_model.cache_clear()
+
+    def test_traversal_cannot_reach_a_file_outside_the_model_dir(self, tmp_path):
+        """
+        The escaping form is a leading slash: "/../../x" makes the filename
+        "prediction_/../../X.pkl", whose components are prediction_, .., .., X.
+        POSIX only walks ".." through directories that exist, so this also needs
+        a real "prediction_" directory — built here so the test would actually
+        catch the escape rather than pass for the wrong reason.
+        """
+        from api.routers import players
+
+        model_dir = tmp_path / "models"
+        (model_dir / "prediction_").mkdir(parents=True)
+        (tmp_path / "PREDICTION_EVIL.pkl").write_bytes(pickle.dumps({"m": "pwned"}))
+
+        players._load_model.cache_clear()
+        with patch.object(players, "_MODEL_DIR", model_dir):
+            assert players._load_model("/../../prediction_EVIL") is None
+        players._load_model.cache_clear()

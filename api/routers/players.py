@@ -39,10 +39,36 @@ _DEFAULT_DEV_SCORE = 5.0
 _MODEL_DIR = PROJECT_ROOT / "data" / "models"
 
 
+def get_scoped_player(
+    player_id: UUID,
+    db: Session = Depends(get_db),
+    academy_id: UUID = Depends(get_current_academy_id),
+) -> Player:
+    """
+    Load a player, but only if they belong to the calling academy.
+
+    Every per-player route depends on this rather than calling db.get() itself,
+    so a player can't be read across academies. A player owned by someone else
+    is reported as 404, not 403 — telling a caller "this exists but isn't
+    yours" would leak which player ids are real.
+    """
+    player = db.get(Player, player_id)
+    if player is None or player.academy_id != academy_id:
+        raise _PLAYER_NOT_FOUND
+    return player
+
+
 @lru_cache(maxsize=16)
 def _load_model(position: str) -> Any | None:
     """Load pickled sklearn model for a position group. Returns None if not trained yet.
     Cached per process — restart worker after retraining to pick up new models."""
+    # position is free text supplied at player creation and this path is
+    # pickle.load-ed, so it must never shape the filename unchecked — a
+    # position of "../.." would escape _MODEL_DIR. Real positions are letters
+    # ("CM", "GK", the pipeline's "unknown"); anything else takes the shared
+    # model, which is what an unrecognised position got anyway.
+    if not position.isalpha():
+        position = "ALL"
     path = _MODEL_DIR / f"prediction_{position.upper()}.pkl"
     if not path.exists():
         path = _MODEL_DIR / "prediction_ALL.pkl"
@@ -78,7 +104,10 @@ class PlayerBase(BaseModel):
 
 
 class PlayerCreate(PlayerBase):
-    academy_id: UUID
+    # No academy_id — ownership is taken from the caller's token, not the body.
+    # Pydantic's default extra="ignore" matches MatchCreate: a client that still
+    # sends academy_id gets it silently dropped rather than a 422.
+    pass
 
 
 class PlayerResponse(PlayerBase):
@@ -94,9 +123,18 @@ class PlayerResponse(PlayerBase):
 # ---------------------------------------------------------------------------
 
 @router.post("/", response_model=PlayerResponse, status_code=201)
-def create_player(player: PlayerCreate, db: Session = Depends(get_db)):
-    """Register a new player in an academy."""
-    record = Player(**player.model_dump())
+def create_player(
+    player: PlayerCreate,
+    db: Session = Depends(get_db),
+    academy_id: UUID = Depends(get_current_academy_id),
+):
+    """
+    Register a new player.
+
+    Ownership comes from the bearer token, so a player cannot be created under
+    another academy.
+    """
+    record = Player(**player.model_dump(), academy_id=academy_id)
     db.add(record)
     db.commit()
     db.refresh(record)
@@ -105,7 +143,7 @@ def create_player(player: PlayerCreate, db: Session = Depends(get_db)):
 
 @router.get("/{player_id}/stats", response_model=list[PlayerStatsResponse])
 def get_player_stats(
-    player_id: UUID,
+    player: Player = Depends(get_scoped_player),
     db: Session = Depends(get_db),
     match_id: Optional[UUID] = Query(None),
 ):
@@ -113,14 +151,10 @@ def get_player_stats(
     Return a player's match stats history, newest first.
     Optionally filter to a single match with ?match_id=<uuid>.
     """
-    player = db.get(Player, player_id)
-    if player is None:
-        raise _PLAYER_NOT_FOUND
-
     query = (
         select(PlayerMatchStats, Match)
         .join(Match, PlayerMatchStats.match_id == Match.id)
-        .where(PlayerMatchStats.player_id == player_id)
+        .where(PlayerMatchStats.player_id == player.id)
     )
     if match_id:
         query = query.where(PlayerMatchStats.match_id == match_id)
@@ -147,15 +181,14 @@ def get_player_stats(
 
 
 @router.get("/{player_id}/profile", response_model=PlayerProfileResponse)
-def get_player_profile(player_id: UUID, db: Session = Depends(get_db)):
+def get_player_profile(
+    player: Player = Depends(get_scoped_player),
+    db: Session = Depends(get_db),
+):
     """Full player profile with latest stats and development trend."""
-    player = db.get(Player, player_id)
-    if player is None:
-        raise _PLAYER_NOT_FOUND
-
     latest_row = db.execute(
         select(PlayerMatchStats)
-        .where(PlayerMatchStats.player_id == player_id)
+        .where(PlayerMatchStats.player_id == player.id)
         .join(Match, PlayerMatchStats.match_id == Match.id)
         .order_by(Match.created_at.desc())
         .limit(1)
@@ -167,7 +200,7 @@ def get_player_profile(player_id: UUID, db: Session = Depends(get_db)):
 
     dev_rows = db.execute(
         select(DevelopmentScore)
-        .where(DevelopmentScore.player_id == player_id)
+        .where(DevelopmentScore.player_id == player.id)
         .order_by(DevelopmentScore.week_start.desc())
         .limit(52)
     ).scalars().all()
@@ -185,15 +218,15 @@ def get_player_profile(player_id: UUID, db: Session = Depends(get_db)):
 
 @router.get("/{player_id}/heatmap", response_model=PlayerHeatmapResponse)
 def get_player_heatmap(
-    player_id: UUID,
     match_id: UUID = Query(...),
+    player: Player = Depends(get_scoped_player),
     db: Session = Depends(get_db),
 ):
     """Heatmap grid data for a player in a specific match."""
     stats = db.execute(
         select(PlayerMatchStats)
         .where(
-            PlayerMatchStats.player_id == player_id,
+            PlayerMatchStats.player_id == player.id,
             PlayerMatchStats.match_id == match_id,
         )
     ).scalar_one_or_none()
@@ -202,14 +235,17 @@ def get_player_heatmap(
         raise HTTPException(status_code=404, detail="No stats found for this player and match")
 
     return PlayerHeatmapResponse(
-        player_id=player_id,
+        player_id=player.id,
         match_id=match_id,
         heatmap_data=stats.heatmap_data,
     )
 
 
 @router.get("/{player_id}/prediction")
-def get_player_prediction(player_id: UUID, db: Session = Depends(get_db)):
+def get_player_prediction(
+    player: Player = Depends(get_scoped_player),
+    db: Session = Depends(get_db),
+):
     """
     Predict a player's development score for the coming week.
 
@@ -217,11 +253,7 @@ def get_player_prediction(player_id: UUID, db: Session = Depends(get_db)):
     Falls back to a rolling-mean estimate when no model file exists yet,
     returning confidence < 0.5 to signal the fallback.
     """
-    player = db.get(Player, player_id)
-    if player is None:
-        raise _PLAYER_NOT_FOUND
-
-    history = assemble_player_features(player_id, db, n_matches=_HISTORY_WINDOW)
+    history = assemble_player_features(player.id, db, n_matches=_HISTORY_WINDOW)
     if len(history) < _MIN_MATCHES:
         raise HTTPException(
             status_code=422,
@@ -230,7 +262,7 @@ def get_player_prediction(player_id: UUID, db: Session = Depends(get_db)):
 
     recent_scores = db.execute(
         select(DevelopmentScore)
-        .where(DevelopmentScore.player_id == player_id)
+        .where(DevelopmentScore.player_id == player.id)
         .order_by(DevelopmentScore.week_start.desc())
         .limit(4)
     ).scalars().all()
@@ -259,7 +291,7 @@ def get_player_prediction(player_id: UUID, db: Session = Depends(get_db)):
     )
 
     return {
-        "player_id": str(player_id),
+        "player_id": str(player.id),
         "predicted_score": round(predicted, 2),
         "current_score": round(current_score, 2),
         "trend": _trend(predicted, current_score),

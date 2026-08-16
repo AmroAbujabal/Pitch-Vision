@@ -61,8 +61,13 @@ def auth_academy() -> dict:
     Which academy the fake bearer token belongs to.
 
     A mutable holder so `seeded` can point it at the academy it creates. Match
-    routes are scoped to the caller's academy, so a token for some unrelated
-    id would 404 on every seeded record.
+    and player routes are scoped to the caller's academy, so a token for some
+    unrelated id would 404 on every seeded record.
+
+    There is only one token, so **use at most one academy-creating fixture per
+    test**. Requesting two (say `seeded` and `profile_player`) authenticates as
+    whichever ran last, and the other's records 404 — which reads like a
+    product tenant-scoping bug rather than a fixture clash.
     """
     return {"id": _DUMMY_ACADEMY_ID}
 
