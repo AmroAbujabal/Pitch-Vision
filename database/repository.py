@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 from loguru import logger
 
@@ -97,6 +97,17 @@ def save_pipeline_results(
     match = session.get(Match, result.match_id)
     if match is None:
         raise ValueError(f"Match {result.match_id} not found in database")
+
+    # Re-running a match is a supported flow (POST /matches/{id}/reprocess exists
+    # so calibration saved after an upload can take effect), and this function
+    # only ever appended. Without this delete a second run leaves two rows per
+    # player: player_count doubles, press totals double, and the player table
+    # lists everyone twice. DevelopmentScore is keyed on (player, week) and
+    # already upserts, so it needs no equivalent — and it references players,
+    # not these rows, so nothing is orphaned.
+    session.execute(
+        delete(PlayerMatchStats).where(PlayerMatchStats.match_id == result.match_id)
+    )
 
     rows_created = 0
     week = _week_start(match.match_date)

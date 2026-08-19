@@ -189,3 +189,79 @@ class TestBrokerFailureDoesNotStrandTheMatch:
                 files=_mp4(b"kept"),
             )
         assert (tmp_raw_dir / f"{upload_match.id}.mp4").read_bytes() == b"kept"
+
+
+# ---------------------------------------------------------------------------
+# POST /api/v1/matches/{id}/reprocess
+# ---------------------------------------------------------------------------
+
+class TestReprocess:
+    """
+    Re-running the pipeline on the video already on disk, so calibration saved
+    after an upload can actually take effect.
+    """
+
+    def test_returns_404_for_unknown_match(self, client, tmp_raw_dir):
+        resp = client.post(
+            "/api/v1/matches/00000000-0000-0000-0000-000000000000/reprocess"
+        )
+        assert resp.status_code == 404
+
+    def test_returns_404_when_no_video_is_on_disk(
+        self, client, upload_match, tmp_raw_dir
+    ):
+        resp = client.post(f"/api/v1/matches/{upload_match.id}/reprocess")
+        assert resp.status_code == 404
+
+    def test_returns_202_and_enqueues_when_the_video_exists(
+        self, client, upload_match, tmp_raw_dir
+    ):
+        (tmp_raw_dir / f"{upload_match.id}.mp4").write_bytes(b"already uploaded")
+
+        with patch("api.routers.matches.process_match") as mock_task:
+            resp = client.post(f"/api/v1/matches/{upload_match.id}/reprocess")
+
+        assert resp.status_code == 202
+        assert resp.json()["status"] == "processing"
+        mock_task.delay.assert_called_once_with(
+            str(upload_match.id),
+            str(upload_match.academy_id),
+            upload_match.fps,
+            upload_match.frame_width,
+            upload_match.frame_height,
+        )
+
+    def test_finds_a_video_saved_under_any_allowed_extension(
+        self, client, upload_match, tmp_raw_dir
+    ):
+        (tmp_raw_dir / f"{upload_match.id}.mov").write_bytes(b"quicktime")
+
+        with patch("api.routers.matches.process_match"):
+            resp = client.post(f"/api/v1/matches/{upload_match.id}/reprocess")
+        assert resp.status_code == 202
+
+    def test_broker_failure_marks_the_match_failed_not_processing(
+        self, client, upload_match, tmp_raw_dir, db_session
+    ):
+        (tmp_raw_dir / f"{upload_match.id}.mp4").write_bytes(b"already uploaded")
+
+        with patch("api.routers.matches.process_match") as mock_task:
+            mock_task.delay.side_effect = OSError("no broker")
+            resp = client.post(f"/api/v1/matches/{upload_match.id}/reprocess")
+
+        assert resp.status_code == 503
+        db_session.expire_all()
+        assert db_session.get(Match, upload_match.id).processing_status == "failed"
+
+    def test_returns_409_when_a_run_is_already_in_flight(
+        self, client, upload_match, tmp_raw_dir, db_session
+    ):
+        (tmp_raw_dir / f"{upload_match.id}.mp4").write_bytes(b"already uploaded")
+        upload_match.processing_status = "processing"
+        db_session.commit()
+
+        with patch("api.routers.matches.process_match") as mock_task:
+            resp = client.post(f"/api/v1/matches/{upload_match.id}/reprocess")
+
+        assert resp.status_code == 409
+        mock_task.delay.assert_not_called()

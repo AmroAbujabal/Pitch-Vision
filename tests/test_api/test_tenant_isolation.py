@@ -97,6 +97,10 @@ class TestForeignMatchIsUnwritable:
         )
         assert resp.status_code == 404
 
+    def test_reprocess_returns_404(self, client, foreign_match):
+        resp = client.post(f"/api/v1/matches/{foreign_match.id}/reprocess")
+        assert resp.status_code == 404
+
 
 # ---------------------------------------------------------------------------
 # Creation

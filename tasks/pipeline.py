@@ -9,7 +9,7 @@ import uuid
 from loguru import logger
 from celery import Celery
 
-from config.settings import settings, ALLOWED_VIDEO_EXTENSIONS
+from config.settings import settings, find_raw_video
 
 celery_app = Celery("football_ai", broker=settings.redis_url)
 
@@ -39,13 +39,7 @@ def process_match(
 
     db = SessionLocal()
     try:
-        video_path = None
-        for ext in ALLOWED_VIDEO_EXTENSIONS:
-            candidate = settings.raw_dir / f"{match_id}{ext}"
-            if candidate.exists():
-                video_path = candidate
-                break
-
+        video_path = find_raw_video(match_id)
         if video_path is None:
             logger.warning(f"process_match: no video file found for match {match_id}")
             return

@@ -5,6 +5,7 @@ import { redirectIfUnauthorized } from "@/lib/guard";
 import PitchControlBar from "@/components/PitchControlBar";
 import PlayerTable from "@/components/PlayerTable";
 import StatusBadge from "@/components/StatusBadge";
+import ReprocessButton from "@/components/ReprocessButton";
 
 interface Props {
   params: { id: string };
@@ -122,11 +123,14 @@ export default async function MatchDetailPage({ params }: Props) {
         </div>
 
         {needsCalibration && (
-          <p className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
-            Formation is unavailable because this match has no pitch
-            calibration. Mark the four corners, then upload the video again to
-            pick it up.
-          </p>
+          <div className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            <p>
+              Formation is unavailable because this match has no pitch
+              calibration. Mark the four corners, then re-run the analysis to
+              pick it up.
+            </p>
+            <ReprocessButton matchId={params.id} />
+          </div>
         )}
 
         {/* Match title */}

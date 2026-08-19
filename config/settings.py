@@ -1,5 +1,6 @@
 from pydantic_settings import BaseSettings
 from pathlib import Path
+from uuid import UUID
 
 PROJECT_ROOT = Path(__file__).parent.parent
 
@@ -64,3 +65,24 @@ settings = Settings()
 
 # Accepted video container formats (shared by the upload endpoint and pipeline task)
 ALLOWED_VIDEO_EXTENSIONS: frozenset[str] = frozenset({".mp4", ".avi", ".mov", ".mkv"})
+
+
+def find_raw_video(match_id: UUID | str) -> Path | None:
+    """
+    The uploaded video for a match, whichever allowed extension it was saved under.
+
+    Upload writes `raw_dir/{match_id}{suffix}` and both the pipeline task and the
+    re-run endpoint have to find it again. Keeping that convention in one place
+    next to the two constants it is built from means a change to the storage
+    layout is a change to this function, not a hunt through three modules.
+
+    Sorted, not raw frozenset order: a match can legitimately have two files if
+    it was uploaded twice with different containers, and Python randomises string
+    hashing per process, so an unsorted scan lets the API process and the Celery
+    worker disagree about which one they mean.
+    """
+    for suffix in sorted(ALLOWED_VIDEO_EXTENSIONS):
+        candidate = settings.raw_dir / f"{match_id}{suffix}"
+        if candidate.exists():
+            return candidate
+    return None

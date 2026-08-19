@@ -340,3 +340,63 @@ class TestDevelopmentScoreUpsert:
             select(DevelopmentScore).where(DevelopmentScore.player_id == player.id)
         ).scalars().all()
         assert len(scores) == 2
+
+
+# ---------------------------------------------------------------------------
+# Re-running a match
+# ---------------------------------------------------------------------------
+
+class TestReRunReplacesStatsRatherThanAppending:
+    """
+    POST /matches/{id}/reprocess makes a second run on the same match the
+    intended flow, and save_pipeline_results only ever appended — so a re-run
+    used to leave two stats rows per player, doubling player_count and every
+    team total on the match summary.
+    """
+
+    def _result(self, match, track_ids, distance=7000.0):
+        class _Physical:
+            def __init__(self, d):
+                self.top_speed_ms = 8.0
+                self.avg_speed_ms = 4.0
+                self.distance_covered_m = d
+                self.hi_run_count = 5
+                self.sprint_count = 2
+                self.speed_zones = None
+
+        return PipelineResult(
+            match_id=match.id,
+            fps=25.0,
+            physical_metrics={tid: _Physical(distance) for tid in track_ids},
+            pitch_control_by_track={},
+            press_stats={},
+            track_teams={tid: "home" for tid in track_ids},
+        )
+
+    def test_second_run_does_not_duplicate_rows(self, session, match):
+        track_ids = [1, 2, 3]
+        save_pipeline_results(session, match.academy_id, self._result(match, track_ids))
+        save_pipeline_results(session, match.academy_id, self._result(match, track_ids))
+
+        rows = session.execute(
+            select(PlayerMatchStats).where(PlayerMatchStats.match_id == match.id)
+        ).scalars().all()
+        assert len(rows) == 3
+
+    def test_second_run_overwrites_with_the_new_numbers(self, session, match):
+        save_pipeline_results(session, match.academy_id, self._result(match, [1], distance=7000.0))
+        save_pipeline_results(session, match.academy_id, self._result(match, [1], distance=9100.0))
+
+        row = session.execute(
+            select(PlayerMatchStats).where(PlayerMatchStats.match_id == match.id)
+        ).scalar_one()
+        assert row.distance_covered_m == pytest.approx(9100.0, rel=0.01)
+
+    def test_a_track_that_vanishes_on_the_re_run_leaves_no_stale_row(self, session, match):
+        save_pipeline_results(session, match.academy_id, self._result(match, [1, 2, 3]))
+        save_pipeline_results(session, match.academy_id, self._result(match, [1]))
+
+        rows = session.execute(
+            select(PlayerMatchStats).where(PlayerMatchStats.match_id == match.id)
+        ).scalars().all()
+        assert len(rows) == 1

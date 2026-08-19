@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from api.auth import get_current_academy_id
 from api.deps import get_db
 from api.schemas import MatchSummaryResponse, MatchPlayerResponse
-from config.settings import settings, ALLOWED_VIDEO_EXTENSIONS
+from config.settings import settings, ALLOWED_VIDEO_EXTENSIONS, find_raw_video
 from database.models import Match, Player, PlayerMatchStats
 from tasks.pipeline import process_match
 
@@ -257,6 +257,35 @@ def get_match_players(
     ]
 
 
+def _enqueue_processing(match: Match, db: Session) -> None:
+    """
+    Mark the match processing and hand it to the worker.
+
+    Shared by upload and re-run. The rollback matters: the status is committed
+    before the task is enqueued, so a broker that is down would otherwise leave
+    the match reading "processing" forever with nothing to pick it up. Mark it
+    failed so it reads honestly and can be retried.
+    """
+    match.processing_status = "processing"
+    db.commit()
+
+    try:
+        process_match.delay(
+            str(match.id),
+            str(match.academy_id),
+            match.fps,
+            match.frame_width,
+            match.frame_height,
+        )
+    except Exception:
+        match.processing_status = "failed"
+        db.commit()
+        raise HTTPException(
+            status_code=503,
+            detail="Could not queue processing. The video is on disk; try again.",
+        )
+
+
 @router.post("/{match_id}/upload-video", status_code=202)
 def upload_video(
     file: UploadFile = File(...),
@@ -275,28 +304,42 @@ def upload_video(
     with dest.open("wb") as out:
         shutil.copyfileobj(file.file, out)
 
-    match.processing_status = "processing"
-    db.commit()
+    _enqueue_processing(match, db)
 
-    try:
-        process_match.delay(
-            str(match.id),
-            str(match.academy_id),
-            match.fps,
-            match.frame_width,
-            match.frame_height,
-        )
-    except Exception:
-        # Without this the match is stranded: the status is already committed
-        # as "processing" but no worker will ever pick the task up, so the
-        # dashboard shows it working forever. Mark it failed so it reads
-        # honestly and can be uploaded again.
-        match.processing_status = "failed"
-        db.commit()
+    return {"match_id": str(match.id), "status": "processing"}
+
+
+@router.post("/{match_id}/reprocess", status_code=202)
+def reprocess_match(
+    match: Match = Depends(get_scoped_match),
+    db: Session = Depends(get_db),
+):
+    """
+    Re-run the pipeline on the video already on disk.
+
+    Calibration only takes effect on the next pipeline run, so a coach who
+    uploaded before picking the pitch corners is stuck with "unknown"
+    formations. This is the explicit way out. PUT /calibration deliberately
+    does not do this itself — a save button that silently starts a long job is
+    a surprising side effect.
+    """
+    if find_raw_video(match.id) is None:
         raise HTTPException(
-            status_code=503,
-            detail="Could not queue processing. The video was saved; try again.",
+            status_code=404,
+            detail="No source video for this match. Upload it again.",
         )
+
+    # Two pipeline runs on one match race each other to write its stats rows.
+    # The button's busy flag stops a double click, but the endpoint is callable
+    # directly. Note this also blocks a match wedged at "processing" by a worker
+    # that died mid-run, which nothing currently rolls back.
+    if match.processing_status == "processing":
+        raise HTTPException(
+            status_code=409,
+            detail="This match is already being processed.",
+        )
+
+    _enqueue_processing(match, db)
 
     return {"match_id": str(match.id), "status": "processing"}
 

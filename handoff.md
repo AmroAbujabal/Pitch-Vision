@@ -1,161 +1,174 @@
 # PitchVision — Handoff
 
-_Last updated: 2026-08-18_ — **the corner-picker ships and is committed.
-Formation detection is reachable from the dashboard for the first time, which
-also meant giving the dashboard an auth flow it never had. CI now runs 257
-tests instead of 157.**
+_Last updated: 2026-08-19_ — **re-processing after calibration ships.** The top
+item carried over from 2026-08-18 is built, driven in a real browser, and
+committed. A coach who uploaded before calibrating is no longer stuck with
+`"unknown"` formations.
 
 ## Goal
 
-Build the corner-picker UI, the top item carried over from 2026-08-15. Two
-blockers surfaced during exploration that the previous handoff did not know
-about, and both had to be solved first: the dashboard could not authenticate at
-all, and nothing served a still frame to click on.
+Build next-steps item 1 from the previous handoff: an explicit
+`POST /api/v1/matches/{id}/reprocess` plus a "Re-run analysis" button, so
+calibration saved after an upload can actually take effect. The design was
+decided last session and was not re-litigated.
 
 ## Current State
 
-- **Verified 2026-08-18 (re-run at session close, all green):**
-  - What CI runs, `pytest tests/ -q --ignore=tests/test_detection` → **257 pass**
-  - API-only subset `pytest tests/test_api/ tests/test_db/ -q` → **157 pass** (was 154)
+- **Verified 2026-08-19, all green:**
+  - What CI runs, `pytest tests/ -q --ignore=tests/test_detection` → **267 pass** (was 257)
+  - API-only subset `pytest tests/test_api/ tests/test_db/ -q` → **167 pass** (was 157)
   - `ruff check .` → clean
   - `cd dashboard && ./node_modules/.bin/tsc --noEmit` → clean
-  - `cd dashboard && npm test` → **16 pass** (vitest, new)
+  - `cd dashboard && npm test` → **16 pass** (vitest, unchanged)
 - **Driven end to end in a real browser** against a real API on port 8001:
-  `/` redirects to `/login` → sign in → matches list scoped to the token →
-  create match → calibrate → pick video → click 4 corners → choose direction →
-  save. Then read back from `dev.db` and fitted through the homography.
-- **The corners land in video pixel space, confirmed against ground truth.** A
-  synthetic ffmpeg clip with a pitch rectangle at exactly
-  `(300,200)-(1620,880)` in a 1920x1080 frame, rendered on a canvas at 734x414
-  (a 2.616x scale), stored `[[300,198],[1618,198],[1618,880],[300,880]]`. The
-  1-2px residual is the expected quantisation, since one CSS pixel is 2.6 video
-  pixels at that scale. `PitchHomography.fit_from_corners()` maps them onto
-  `(0,0) (105,0) (105,68) (0,68)` with the centre at `(52.5, 34)`.
-- Design doc: `docs/superpowers/specs/2026-08-16-corner-picker-design.md`.
-- **Committed, not pushed.** `origin/main` is 4 commits behind:
-  - `a3f474f` feat(dashboard): the picker + auth flow
-  - `5f6179d` ci: run the 100 metrics/utils/pipeline tests that never ran
-  - `6409eed` chore: stop tracking tsconfig.tsbuildinfo
-  - plus `77df4ad` from the previous session
+  the amber banner renders its new "Re-run analysis" button → click → the DB
+  flips to `processing` → `router.refresh()` re-renders the server page, so the
+  status badge updates and the banner disappears without a reload.
+- **Both failure paths driven live too**, not just unit-tested:
+  - No video on disk → 404, and the API's `detail` string surfaces in the
+    button's `role="alert"` text ("No source video for this match. Upload it
+    again."). The button re-enables so the coach can retry.
+  - Broker down → 503 and the match reads `failed`, confirmed by DB readback.
+    This machine has no Redis, so that path is the default here; the 202 happy
+    path was verified by starting the API with `REDIS_URL=memory://`.
+- **Reviews:** `/simplify` (4 agents), `/code-review high`, `/security-review`
+  and `/karpathy-check` all run. Security found nothing. Code review found one
+  HIGH that this change created (see Changes Made item 5) plus four in older
+  code, now next-steps items 5-7. Karpathy passed with two warnings, both fixed.
+- **Committed, not pushed.** `origin/main` is now 7 commits behind.
 
 ## Active Files
 
-New, dashboard:
+New:
 
-- `lib/corners.ts` + `lib/corners.test.ts` — click to video pixel, corner
-  labels, degenerate-quad rejection. The only logic with tests, because it is
-  the only part where a wrong answer is invisible.
-- `lib/session.ts` — `pv_token` cookie, `UnauthorizedError`. Cookie lifetime is
-  read from the JWT's own `exp` claim rather than duplicating
-  `access_token_expire_minutes`.
-- `lib/proxy.ts` — `forward()` attaches the bearer server-side; `isUuid()`
-  guards route params before they reach the API URL.
-- `lib/guard.ts` — `redirectIfUnauthorized()` for page catch blocks.
-- `middleware.ts`, `app/login/page.tsx`, `app/api/auth/{login,logout}/route.ts`
-- `app/matches/new/page.tsx`, `app/api/matches/route.ts`
-- `app/matches/[id]/calibrate/page.tsx`, `components/CalibratePicker.tsx`,
-  `app/api/matches/[id]/{calibration,upload}/route.ts`
-- `components/SignOutButton.tsx`, `components/StepIndicator.tsx`,
-  `components/SmallButton.tsx`
+- `dashboard/components/ReprocessButton.tsx` — client button; POSTs to the
+  proxy, then `router.refresh()`. Renders the server's error string.
+- `dashboard/app/api/matches/[id]/reprocess/route.ts` — the proxy, same
+  `isUuid` → `badId` → `forward` shape as its siblings.
 
 Modified:
 
-- `dashboard/lib/api.ts` — sends `Authorization`; 401 throws `UnauthorizedError`.
-  `matches.list()` lost its `academyId` argument.
-- `dashboard/app/page.tsx` — `NEXT_PUBLIC_ACADEMY_ID` gone, "New match" added.
-- `dashboard/app/matches/[id]/page.tsx` — "Calibrate camera" link, plus a
-  warning when a processed match came back with `"unknown"` formations.
-- `dashboard/components/Nav.tsx` — sign-out, hidden when signed out.
-- `api/routers/matches.py` — the one backend change, see below.
-- `scripts/seed_dev.py` — sets a password (`SEED_PASSWORD`, default
-  `devpassword`), since nothing else can.
-- `.github/workflows/ci.yml` — dashboard job runs `npm test`; backend job now
-  installs `requirements-test.txt` and runs the full non-detection scope.
-- `requirements-test.txt` — new; `-r requirements-ci.txt` + opencv-headless.
+- `api/routers/matches.py` — `reprocess_match`, plus `_enqueue_processing`
+  factored out of `upload_video` so both callers share the broker-failure
+  rollback instead of copying it.
+- `config/settings.py` — `find_raw_video()`, see below.
+- `tasks/pipeline.py` — now calls `find_raw_video()` instead of its own copy.
+- `dashboard/app/matches/[id]/page.tsx` — the `needsCalibration` banner is now
+  a `<div>` wrapping the copy plus the button. Its text changed from "upload
+  the video again" to "re-run the analysis", which is the point of the change.
+- `database/repository.py` — `save_pipeline_results` clears the match's stats
+  rows before writing, see Changes Made item 5.
+- `tests/test_api/test_upload.py` — `TestReprocess`, 6 tests.
+- `tests/test_db/test_repository.py` — `TestReRunReplacesStatsRatherThanAppending`,
+  3 tests, all checked non-vacuously against the pre-fix code.
+- `tests/test_api/test_tenant_isolation.py` — `test_reprocess_returns_404`.
+- `CLAUDE.md` — test counts 257→267 / 157→167; the re-processing and
+  corner-picker backlog items are done and removed.
 
 ## Changes Made
 
-1. **Still frames come from the browser, not the server.** The coach picks the
-   file, an offscreen `<video>` seeks, and the frame goes to a canvas. Clicks
-   scale by `videoWidth / rect.width`. A server-side `GET /frame` was rejected
-   twice over: it needs opencv in the production image, which
-   `requirements-ci.txt` deliberately excludes, and it could only run after
-   upload, which is after processing already started.
-2. **Auth is an httpOnly cookie plus server-side proxies.** Existing pages are
-   Server Components, so a token in `localStorage` would have forced them all
-   to become client components. The cookie is unreadable from page JS, which is
-   exactly why the picker's mutations go through route handlers.
-3. **Upload is disabled until calibration saves**, so the
-   "upload-starts-the-pipeline-immediately" trap cannot be hit through the UI.
-4. **`upload_video` no longer strands a match** (`api/routers/matches.py`). It
-   committed `processing_status = "processing"` _before_ enqueueing, so a
-   broker that is down left the match reading "processing" forever with nothing
-   to pick it up. Now the failure marks it `"failed"` and returns 503 with the
-   video kept on disk for a retry. Found by clicking Upload on this machine,
-   which has no Redis. Three regression tests, all verified failing against the
-   old code.
+1. **`POST /matches/{id}/reprocess`**, behind `get_scoped_match` like every
+   other per-match route. 404 when no video is on disk, otherwise sets
+   `processing_status = "processing"` and enqueues. Built exactly to the spec
+   decided last session — `PUT /calibration` still does **not** re-enqueue on
+   its own, because a save button that silently starts a long job is a
+   surprising side effect.
+2. **The enqueue-and-roll-back block is now shared.** `_enqueue_processing`
+   holds the "commit processing, enqueue, mark failed + 503 if the broker is
+   down" unit that `upload_video` grew on 2026-08-18. Copying it into the new
+   endpoint was the alternative and was explicitly rejected in the spec.
+3. **`find_raw_video()` moved to `config/settings.py`** — a `/simplify` finding.
+   `tasks/pipeline.py` already had a byte-for-byte copy of "loop
+   `ALLOWED_VIDEO_EXTENSIONS`, build `raw_dir / f"{id}{ext}"`, return the first
+   that exists". Writing a second copy in the router would have made three
+   independent encodings of the storage convention (the write side in
+   `upload_video` is the third). It now lives once, next to the two constants
+   it is built from, and the pipeline imports it.
+4. **The shared 503 string was reworded** from "The video was saved" to "The
+   video is on disk" — accurate for the upload caller, wrong for the re-run
+   caller once the block became shared.
+5. **`save_pipeline_results` now deletes a match's stats rows before writing
+   them** — the HIGH finding from code review, and a bug this change created.
+   That function only ever appended, which was harmless while a match was only
+   ever processed once. Making a re-run the intended flow meant the first coach
+   to click the button would get two `PlayerMatchStats` rows per player:
+   `player_count` doubled, every team total doubled, and the player table listed
+   everyone twice. Fixed in the one shared write funnel rather than in the
+   endpoint, so a manual `run_pipeline.py` re-run is covered too. Latent until
+   the `run(...)` TODO in `tasks/pipeline.py` is uncommented, but planted by
+   this change. `DevelopmentScore` needed no equivalent — it is keyed on
+   (player, week) and already upserts, and it references players, not stats rows.
+6. **`find_raw_video` iterates `sorted(ALLOWED_VIDEO_EXTENSIONS)`.** A match can
+   legitimately have both a `.mov` and an `.mp4` if it was uploaded twice, and
+   Python randomises string hashing per process — so an unsorted frozenset scan
+   let the API process and the Celery worker pick different files.
+7. **`POST /reprocess` 409s when the match is already `processing`.** Two
+   concurrent runs race to write the same match's stats. Note this also blocks a
+   match wedged at `processing` by a worker that died mid-run; nothing rolls that
+   back today, which is worth a follow-up.
+8. **`test_reprocess_returns_404` added to `test_tenant_isolation.py`** — that
+   file keeps one explicit test per write route and the new one was missing,
+   flagged by karpathy-check.
 
 ## Failed Attempts
 
-- **The canvas would not draw.** `canvasRef.current` is null inside the
-  `seeked` handler, because the canvas only mounts once `frame` state is set.
-  Sizing moved into `draw`, which runs after the element exists.
-- **Four corners clicked quickly became one.** `setCorners([...corners, point])`
-  read a stale closure, so clicks landing in the same React batch overwrote
-  each other. Functional updater now. Both of these passed type-checking and
-  unit tests and were only caught by driving the real page.
-- **Typing a coordinate before placing any corner crashed the page.**
-  `setCorner` assigned straight to an index, so a shorter array gained holes,
-  and a hole is typed as a Point but reads as undefined in `draw()` and
-  `quadProblem()`. Found by code review, reproduced in the browser.
-  The guard for it needed an **indexed loop**: `some`/`every`/`filter` skip
-  holes rather than seeing undefined, so the obvious `points.some(p => !p)`
-  compiled, read correctly, and did absolutely nothing. The test caught it.
-- **Swapping a video mid-decode wiped the new one.** The old element's
-  listeners stayed attached, so revoking its URL fired its `error` handler,
-  which cleared the file just picked and named the wrong one. Handlers now
-  check `videoRef.current === video` first.
-- All four of the above passed `tsc` and the unit tests. Only driving the real
-  page found them. Budget time for that on any canvas or media work here.
-- Not a failure, but do not re-litigate: `taste-skill` was consulted for the
-  visual design and self-excludes dashboards and multi-step forms in its
-  Section 13. `ui-ux-pro-max` is the right skill for this app's UI.
-- Also settled: `handoff.md` used to say "add opencv to requirements-ci.txt".
-  That is wrong — `Dockerfile:16` installs that file into the production image.
-  Test-only deps go in `requirements-test.txt`.
+- Nothing in the feature itself misbehaved. Unusually for this repo, the
+  browser drive confirmed the code rather than finding bugs in it — the risky
+  parts here (canvas, media elements, sparse arrays) are all in the picker,
+  not in a button.
+- **Local-harness friction worth knowing, not code faults:**
+  - A backgrounded `&` process dies when the Bash tool call returns. Use the
+    tool's own background mode for uvicorn / `npm run dev`, or the server is
+    gone by the next command.
+  - `curl` against a just-started Next dev server needs a generous timeout —
+    the first request compiles the route and a 3s timeout reports a false
+    "down" on a server that is fine.
+  - The Playwright MCP browser holds a profile lock; a stale one has to be
+    killed before `browser_navigate` works.
+  - **`dev.db` stores match ids without dashes.** A `WHERE id = '<uuid>'` with
+    dashes silently updates zero rows and reports success.
+  - The dashboard's cwd persists across Bash calls — a stray `cd dashboard`
+    makes later `sqlite3 dev.db` calls open an empty database in the wrong
+    directory and report "no such table".
 
 ## Next steps
 
-1. **Re-processing after calibration — design decided 2026-08-18, not built.**
-   Calibration still only takes effect on the next pipeline run, so a coach who
-   uploads before calibrating is stuck with `"unknown"`. Build it as an
-   **explicit re-run**, not an implicit one:
-   - `POST /api/v1/matches/{id}/reprocess`, behind `get_scoped_match` like every
-     other per-match route. 404 if the raw video is no longer on disk at
-     `settings.raw_dir / f"{match.id}{suffix}"`; otherwise set
-     `processing_status = "processing"` and enqueue.
-   - Reuse the broker-failure guard added to `upload_video` — mark the match
-     `failed` and return 503 rather than stranding it as "processing".
-     Better still, factor that enqueue-and-roll-back block out of
-     `upload_video` so both callers share it, rather than copying it.
-   - Dashboard: a "Re-run analysis" button on the match page, shown when the
-     match is `done` but a formation is `"unknown"`. The `needsCalibration`
-     banner in `dashboard/app/matches/[id]/page.tsx` already computes exactly
-     that condition and is the natural place to hang it.
-   - Rejected: letting `PUT /calibration` re-enqueue on its own. A save button
-     that silently starts a long job is a surprising side effect.
-   - Also rejected for now: splitting upload from "start processing". Cleanest
-     model, but it changes the existing upload contract and its tests, and the
-     re-run endpoint solves the actual problem without that churn.
-2. **Half-time end swap** — `home_defends_end` describes the whole video, so a
+1. **Half-time end swap** — `home_defends_end` describes the whole video, so a
    full match mirrors one half. Needs a per-half split.
-3. **Frame dimensions are never sent.** `CalibratePicker` knows the real
-   `frame.width/height` but `POST /matches/` takes the 1920x1080 default, and
+2. **Frame dimensions are never sent.** `CalibratePicker` knows the real
+   `frame.width/height` but `POST /matches/` takes the 1920x1080 default and
    `PUT /calibration` has no field to correct it. Only bites when the
    homography fails and the linear pixel-to-metre fallback runs, but it is a
-   silent wrong answer when it does. Raised by code review.
-4. **Cloud Run returned 503** on `/health` (2026-08-16). Untouched, uninvestigated.
-5. Backlog: an email or slug column on `Academy` so login is not a raw UUID;
+   silent wrong answer when it does.
+3. **`Match.video_path` is dead schema** — raised by the altitude review this
+   session, deliberately not acted on. The column exists on the model and is
+   never assigned anywhere; `upload_video` writes the file without setting it.
+   The deeper fix behind item 3 of "Changes Made" is to store the real path on
+   upload and read it everywhere, retiring the filename convention entirely.
+   Skipped because it changes the upload write path, the pipeline read path,
+   and needs a fallback for every existing row where the column is NULL — more
+   than this change warranted. Do it as its own task, not as a rider.
+4. **A third copy of the fetch/busy/error pattern** now exists across
+   `CalibratePicker.save()`, `CalibratePicker.upload()` and `ReprocessButton`,
+   including the same "Could not reach the dashboard server." fallback string.
+   A `useApiAction` hook in `dashboard/lib` would fold all three. Skipped this
+   session because it means editing the picker, which is code that took a whole
+   session to get right in a browser and is not broken.
+5. **Open redirect in `dashboard/app/login/page.tsx:19`** — code review, MEDIUM,
+   pre-existing. `safeNext` rejects `//` but not `/\`, and the WHATWG URL parser
+   treats a backslash as a slash for special schemes, so
+   `?next=/\evil.com` sends a signed-in coach off-site. Reject any second
+   character in `[/\\]`, or compare origins via `new URL(value, location.origin)`.
+6. **Reverse-winding corners are accepted** (`dashboard/lib/corners.ts:83`) —
+   code review, MEDIUM, pre-existing. The guard is
+   `positive !== 0 && positive !== 4`, so clicking TL→BL→BR→TR passes as a valid
+   convex quad and mirrors the whole pitch, reversing every formation. Should be
+   `positive !== 4`. `corners.test.ts` only covers the bowtie case.
+7. **Match date can shift a day** (`dashboard/app/matches/new/page.tsx:32`) —
+   code review, LOW, pre-existing. `new Date("2026-08-19")` parses as UTC
+   midnight and the card renders in local time, so a Canadian coach sees 18 Aug.
+8. **Cloud Run returned 503** on `/health` (2026-08-16). Still untouched.
+9. Backlog: an email or slug column on `Academy` so login is not a raw UUID;
    `api/routers/academies.py` is still an empty router with no way to create an
    academy or set a password; Re-ID across occlusions (needs torch); pgvector;
    unify the three copies of the linear pixel→metre fallback
@@ -164,13 +177,19 @@ Modified:
 ## How to resume / verify
 
 - `cd /Users/amrabujabal/Downloads/football-ai`
-- What CI runs: `/usr/local/bin/python3.11 -m pytest tests/ -q --ignore=tests/test_detection` → 257 pass
+- What CI runs: `/usr/local/bin/python3.11 -m pytest tests/ -q --ignore=tests/test_detection` → 262 pass
 - Lint: `/usr/local/bin/python3.11 -m ruff check .` → clean
 - Dashboard: `cd dashboard && ./node_modules/.bin/tsc --noEmit && npm test`
 - Seed a login: `SEED_PASSWORD=devpassword PYTHONPATH=. python3.11 scripts/seed_dev.py`
-  (prints the academy id to sign in with). `dev.db` needed
-  `alembic upgrade head` first — it predated the `frame_dims` migration.
+  (prints the academy id to sign in with). Test academy
+  `7ceca9ce-9c63-4330-8053-d658408c9fc6` / `devpassword` already exists in `dev.db`.
 - Run it: `PYTHONPATH=. python3.11 -m uvicorn api.main:app --port 8001` and
   `cd dashboard && npm run dev`. `.env.local` points at **8001**, not 8000.
-- The upload step needs a broker: `brew install redis`. The pipeline itself
-  still cannot run locally without torch.
+- **To exercise the 202 path without Redis**, start the API with
+  `REDIS_URL="memory://"` — `delay()` then succeeds with no worker attached,
+  which is enough to prove the endpoint enqueues. Without it every enqueue
+  takes the 503 branch on this machine.
+- To make the re-run banner appear, a match needs `processing_status='done'`
+  **and** a formation of the literal string `'unknown'` (not NULL), plus a file
+  at `data/raw/{match-id-with-dashes}.mp4`.
+- The pipeline itself still cannot run locally without torch.

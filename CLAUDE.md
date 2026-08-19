@@ -48,7 +48,7 @@ Single-camera limitations to keep in mind:
 - /utils → Video I/O, coordinate transforms, visualization helpers
 - /scripts → Pipeline runner, seed script, model training, weight download
 - /data → Raw footage, processed clips, model weights (gitignored)
-- /tests → Pytest test suite (257 passing in CI, torch-free)
+- /tests → Pytest test suite (267 passing in CI, torch-free)
 - /alembic → DB migrations (initial → password_hash → frame_dims → speed_zones → pitch_calibration)
 - Dockerfile → CPU-only multi-stage build
 - .github/workflows/ci.yml → lint + test + docker-build + tsc on every push
@@ -65,8 +65,8 @@ Single-camera limitations to keep in mind:
 ## Environment
 
 - Python: `/usr/local/bin/python3.11` (no conda on this machine)
-- Run tests (what CI runs): `/usr/local/bin/python3.11 -m pytest tests/ -q --ignore=tests/test_detection` → 257 pass
-- API-only subset: `/usr/local/bin/python3.11 -m pytest tests/test_api/ tests/test_db/ -q` → 157 pass
+- Run tests (what CI runs): `/usr/local/bin/python3.11 -m pytest tests/ -q --ignore=tests/test_detection` → 267 pass
+- API-only subset: `/usr/local/bin/python3.11 -m pytest tests/test_api/ tests/test_db/ -q` → 167 pass
 - `tests/test_detection/` still needs torch + ultralytics and runs nowhere
 - Start API: `/usr/local/bin/python3.11 -m uvicorn api.main:app --reload`
 - GPU: configure in config/settings.py (CUDA device index); default is CPU for single-camera uploads
@@ -98,12 +98,16 @@ Single-camera limitations to keep in mind:
 - **Match and player routes are tenant-scoped** — every per-match route depends on `get_scoped_match` and every per-player route on `get_scoped_player`, which 404 (not 403, so a caller can't confirm which ids exist) when the record belongs to another academy. `list_matches`, `create_match` and `create_player` take the academy from the bearer token, never from the query string or request body. `tests/test_api/test_tenant_isolation.py` holds that line.
   - **Two visible contract changes** from that fix (2026-08-14): `GET /matches/` no longer requires `academy_id` — a missing one now returns 200 scoped to the token instead of 422, and a supplied one is ignored. `POST /matches/` dropped `academy_id` from the body; it is silently ignored (pydantic `extra="ignore"`), not rejected.
   - **One more from the players fix (2026-08-15):** `POST /players/` likewise dropped `academy_id` from the body. A client that still sends another academy's id now gets a 201 with the player under **its own** academy rather than a 422 — silently ignored, the same trade-off as matches.
-- Video upload endpoint → Celery async pipeline
+- Video upload endpoint → Celery async pipeline, plus `POST /matches/{id}/reprocess` to re-run
+  the pipeline on the video already on disk (404 if it is gone). Both go through the same
+  `_enqueue_processing` helper, so a broker that is down marks the match `failed` and returns
+  503 rather than stranding it as "processing". The on-disk path convention lives in one place,
+  `config.settings.find_raw_video()`, shared with `tasks/pipeline.py`.
 - Next.js 14 dashboard (match list, match detail, player profile + prediction card)
 - **Dockerfile** — CPU-only multi-stage build; `alembic upgrade head` on startup
 - **.dockerignore** — excludes model weights, raw footage, node_modules, .env
 - **GitHub Actions CI** (.github/workflows/ci.yml) — all 3 jobs passing:
-  - backend: ruff lint + pytest (257 tests) using requirements-test.txt
+  - backend: ruff lint + pytest (267 tests) using requirements-test.txt
   - docker-build: builds API image (requirements-ci.txt, ~30s) on every push
   - dashboard: npm ci + tsc --noEmit
 - **requirements-ci.txt**: slim install for the API image (no torch/opencv/paddlepaddle)
@@ -119,7 +123,7 @@ Single-camera limitations to keep in mind:
 
 ## Next Session — Pick Up Here
 
-**Phases 1–6 complete. 257 tests passing in CI. API live on Cloud Run.**
+**Phases 1–6 complete. 267 tests passing in CI. API live on Cloud Run.**
 
 **Formation detection is live end to end** — calibration API → homography →
 `pitch_history` → formation → DB → summary API → dashboard card.
@@ -139,8 +143,6 @@ unused `pytest` import tripped `ruff check .`). Fixed; `ruff check .` is clean.
 
 **Remaining backlog (any order after Phase 6):**
 
-- **Corner-picker UI** — the calibration API exists but nothing in the dashboard sets it. A coach currently needs a raw `PUT /calibration` call. Needs a click-four-corners-on-a-still screen.
-- **Re-processing after calibration** — uploading a video starts processing immediately, so calibration saved afterwards only applies to the next run. Either let calibration re-enqueue the pipeline, or split upload from "start processing".
 - **Half-time end swap** — `home_defends_end` describes the whole video. A full-match upload has the teams swapping ends at the break, so one half's formation will be mirrored. Fine for single-half clips; needs a per-half split for full matches.
 - Re-ID across occlusions (TransReID/OSNet — needs torch)
 - pgvector — embedding-based player search (schema placeholder exists)
