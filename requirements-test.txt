@@ -1,0 +1,10 @@
+# Test-only dependencies, layered on top of the CI/API set.
+#
+# Kept separate from requirements-ci.txt on purpose: the Dockerfile defaults to
+# REQUIREMENTS=requirements-ci.txt, so anything added there ships in the
+# production API image. The API serves JSON and does no computer vision, but
+# utils/homography.py imports cv2 at module scope, which is what keeps
+# tests/test_metrics, tests/test_utils and tests/test_pipeline out of CI.
+-r requirements-ci.txt
+
+opencv-python-headless>=4.9.0

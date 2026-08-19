@@ -48,7 +48,7 @@ Single-camera limitations to keep in mind:
 - /utils → Video I/O, coordinate transforms, visualization helpers
 - /scripts → Pipeline runner, seed script, model training, weight download
 - /data → Raw footage, processed clips, model weights (gitignored)
-- /tests → Pytest test suite (154 passing in CI scope, torch-free)
+- /tests → Pytest test suite (257 passing in CI, torch-free)
 - /alembic → DB migrations (initial → password_hash → frame_dims → speed_zones → pitch_calibration)
 - Dockerfile → CPU-only multi-stage build
 - .github/workflows/ci.yml → lint + test + docker-build + tsc on every push
@@ -65,8 +65,9 @@ Single-camera limitations to keep in mind:
 ## Environment
 
 - Python: `/usr/local/bin/python3.11` (no conda on this machine)
-- Run tests (CI scope): `/usr/local/bin/python3.11 -m pytest tests/test_api/ tests/test_db/ -q` → 154 pass
-- Wider local run: `/usr/local/bin/python3.11 -m pytest tests/ -q --ignore=tests/test_detection` → 254 pass (needs `opencv-python-headless` + `alembic`, both installed locally 2026-08-13; neither `tests/test_metrics/`, `tests/test_utils/` nor `tests/test_pipeline/` runs in CI, since requirements-ci.txt has no opencv)
+- Run tests (what CI runs): `/usr/local/bin/python3.11 -m pytest tests/ -q --ignore=tests/test_detection` → 257 pass
+- API-only subset: `/usr/local/bin/python3.11 -m pytest tests/test_api/ tests/test_db/ -q` → 157 pass
+- `tests/test_detection/` still needs torch + ultralytics and runs nowhere
 - Start API: `/usr/local/bin/python3.11 -m uvicorn api.main:app --reload`
 - GPU: configure in config/settings.py (CUDA device index); default is CPU for single-camera uploads
 - Model weights stored in data/model_weights/ (gitignored)
@@ -102,10 +103,11 @@ Single-camera limitations to keep in mind:
 - **Dockerfile** — CPU-only multi-stage build; `alembic upgrade head` on startup
 - **.dockerignore** — excludes model weights, raw footage, node_modules, .env
 - **GitHub Actions CI** (.github/workflows/ci.yml) — all 3 jobs passing:
-  - backend: ruff lint + pytest (126 tests) using requirements-ci.txt
+  - backend: ruff lint + pytest (257 tests) using requirements-test.txt
   - docker-build: builds API image (requirements-ci.txt, ~30s) on every push
   - dashboard: npm ci + tsc --noEmit
-- **requirements-ci.txt**: slim install for CI/API image (no torch/opencv/paddlepaddle)
+- **requirements-ci.txt**: slim install for the API image (no torch/opencv/paddlepaddle)
+- **requirements-test.txt**: `-r requirements-ci.txt` + `opencv-python-headless`, used by CI only. Separate because the Dockerfile defaults to `REQUIREMENTS=requirements-ci.txt`, and the API serves JSON and does no computer vision — but `utils/homography.py` imports cv2 at module scope, which used to keep `tests/test_metrics/`, `tests/test_utils/` and `tests/test_pipeline/` (100 tests) out of CI
 
 ### Single-camera adjustments (Phase 2)
 
@@ -117,7 +119,7 @@ Single-camera limitations to keep in mind:
 
 ## Next Session — Pick Up Here
 
-**Phases 1–6 complete. 145 tests passing in CI scope. API live on Cloud Run.**
+**Phases 1–6 complete. 257 tests passing in CI. API live on Cloud Run.**
 
 **Formation detection is live end to end** — calibration API → homography →
 `pitch_history` → formation → DB → summary API → dashboard card.
