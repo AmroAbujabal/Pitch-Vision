@@ -35,9 +35,13 @@ decided last session and was not re-litigated.
 - **Reviews:** `/simplify` (4 agents), `/code-review high`, `/security-review`
   and `/karpathy-check` all run. Security found nothing. Code review found one
   HIGH that this change created (see Changes Made item 5) plus four in older
-  code, now next-steps items 5-7. Karpathy passed with two warnings, both fixed.
-- **The re-run work is committed AND pushed** — `46532cb`, `origin/main` is
-  current with it. The `video_path` change that follows is a second commit.
+  code, now next-steps items 6-8. Karpathy passed with two warnings, both fixed.
+- **Both changes are committed and pushed.** `origin/main` is current at
+  `a9827e9`; nothing is left uncommitted. Working tree clean.
+  - `46532cb` feat(api): re-run the pipeline after calibration
+  - `a9827e9` refactor: record where a match's video went instead of guessing
+- **Re-verified at session close, all green:** 273 / 173 / ruff clean / tsc
+  clean / 16 vitest.
 
 ## Active Files
 
