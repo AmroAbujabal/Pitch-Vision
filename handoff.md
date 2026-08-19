@@ -14,7 +14,7 @@ all, and nothing served a still frame to click on.
 
 ## Current State
 
-- **Verified 2026-08-18:**
+- **Verified 2026-08-18 (re-run at session close, all green):**
   - What CI runs, `pytest tests/ -q --ignore=tests/test_detection` → **257 pass**
   - API-only subset `pytest tests/test_api/ tests/test_db/ -q` → **157 pass** (was 154)
   - `ruff check .` → clean
