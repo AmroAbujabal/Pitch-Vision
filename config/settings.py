@@ -67,20 +67,33 @@ settings = Settings()
 ALLOWED_VIDEO_EXTENSIONS: frozenset[str] = frozenset({".mp4", ".avi", ".mov", ".mkv"})
 
 
-def find_raw_video(match_id: UUID | str) -> Path | None:
+def find_raw_video(match_id: UUID | str, stored_name: str | None = None) -> Path | None:
     """
-    The uploaded video for a match, whichever allowed extension it was saved under.
+    The uploaded video for a match, or None if it is not on disk.
 
-    Upload writes `raw_dir/{match_id}{suffix}` and both the pipeline task and the
-    re-run endpoint have to find it again. Keeping that convention in one place
-    next to the two constants it is built from means a change to the storage
-    layout is a change to this function, not a hunt through three modules.
+    `stored_name` is `Match.video_path` — the file name upload recorded. Pass it
+    whenever a Match is in hand; it is the authoritative answer and makes the
+    guessing below unnecessary. It holds a bare file name rather than a full
+    path deliberately: `raw_dir` differs between this laptop and Cloud Run, so a
+    stored absolute path would not survive the trip (and CLAUDE.md forbids them).
 
-    Sorted, not raw frozenset order: a match can legitimately have two files if
-    it was uploaded twice with different containers, and Python randomises string
-    hashing per process, so an unsorted scan lets the API process and the Celery
-    worker disagree about which one they mean.
+    Falling back to guessing covers matches uploaded before `video_path` was
+    recorded, where the column is NULL. Delete the fallback once no such rows
+    remain. Sorted, not raw frozenset order: a match can legitimately have two
+    files if it was uploaded twice with different containers, and Python
+    randomises string hashing per process, so an unsorted scan lets the API
+    process and the Celery worker disagree about which one they mean.
     """
+    if stored_name:
+        # .name, not the raw string: today the only writer is upload_video,
+        # which builds it from a UUID and an allowlisted suffix, but that is a
+        # convention held in another module. A stored "../.." or an absolute
+        # path would otherwise escape raw_dir — pathlib discards the base
+        # entirely when the right-hand side is absolute. Costs nothing here
+        # because the value is supposed to be a bare file name anyway.
+        recorded = settings.raw_dir / Path(stored_name).name
+        return recorded if recorded.exists() else None
+
     for suffix in sorted(ALLOWED_VIDEO_EXTENSIONS):
         candidate = settings.raw_dir / f"{match_id}{suffix}"
         if candidate.exists():

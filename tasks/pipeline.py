@@ -28,8 +28,9 @@ def process_match(
     fps/frame_width/frame_height come from the Match record so each upload
     can specify the source camera's actual resolution and frame rate.
 
-    Finds the video at settings.raw_dir/{match_id}.{ext}, runs the pipeline,
-    then marks the match "done". On any unhandled exception marks it "failed".
+    Finds the video under settings.raw_dir via Match.video_path, runs the
+    pipeline, then marks the match "done". On any unhandled exception marks it
+    "failed".
     """
     from database.session import SessionLocal
     from database.models import Match
@@ -39,12 +40,14 @@ def process_match(
 
     db = SessionLocal()
     try:
-        video_path = find_raw_video(match_id)
+        # Loaded before the lookup so Match.video_path can answer where the
+        # video is, rather than the file name being guessed from the id.
+        match = db.get(Match, mid)
+
+        video_path = find_raw_video(match_id, match.video_path if match else None)
         if video_path is None:
             logger.warning(f"process_match: no video file found for match {match_id}")
             return
-
-        match = db.get(Match, mid)
 
         # TODO: uncomment once torch is installed in the active conda env
         # Calibration comes off the Match record: the pitch corners give a real

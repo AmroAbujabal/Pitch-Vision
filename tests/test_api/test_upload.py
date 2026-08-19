@@ -178,6 +178,11 @@ class TestBrokerFailureDoesNotStrandTheMatch:
         db_session.expire_all()
         match = db_session.get(Match, upload_match.id)
         assert match.processing_status == "failed"
+        # The 503 tells the caller the video is on disk and to retry, which is
+        # only true if the name was recorded too. Assigning video_path after
+        # _enqueue_processing instead of before would lose it here and leave
+        # reprocess reporting a file that is actually there as missing.
+        assert match.video_path == f"{upload_match.id}.mp4"
 
     def test_the_saved_video_is_kept_so_the_upload_can_be_retried(
         self, client, upload_match, tmp_raw_dir
@@ -265,3 +270,102 @@ class TestReprocess:
 
         assert resp.status_code == 409
         mock_task.delay.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# Match.video_path
+# ---------------------------------------------------------------------------
+
+class TestUploadRecordsWhereTheVideoWent:
+    """
+    `Match.video_path` existed since the initial migration but was never
+    assigned, so every reader had to guess the file name back from the match id
+    and a list of extensions. Upload now records it.
+    """
+
+    def test_upload_stores_the_file_name(
+        self, client, upload_match, tmp_raw_dir, db_session
+    ):
+        with patch("api.routers.matches.process_match"):
+            client.post(
+                f"/api/v1/matches/{upload_match.id}/upload-video",
+                files=_mp4(),
+            )
+        db_session.expire_all()
+        match = db_session.get(Match, upload_match.id)
+        assert match.video_path == f"{upload_match.id}.mp4"
+
+    def test_the_stored_name_is_not_an_absolute_path(
+        self, client, upload_match, tmp_raw_dir, db_session
+    ):
+        """
+        raw_dir differs between this laptop and Cloud Run, so a stored absolute
+        path would not survive the trip.
+        """
+        with patch("api.routers.matches.process_match"):
+            client.post(
+                f"/api/v1/matches/{upload_match.id}/upload-video",
+                files={"file": ("clip.MOV", io.BytesIO(b"bytes"), "video/quicktime")},
+            )
+        db_session.expire_all()
+        match = db_session.get(Match, upload_match.id)
+        assert match.video_path == f"{upload_match.id}.mov"
+        assert "/" not in match.video_path
+
+    def test_reprocess_uses_the_recorded_name(
+        self, client, upload_match, tmp_raw_dir, db_session
+    ):
+        """
+        The recorded name is authoritative, not merely a faster way to reach the
+        same guess. Deliberately a name the extension scan cannot derive from
+        the match id: if this passed with a `{id}.mkv` file it would prove
+        nothing, since the scan finds that too.
+        """
+        upload_match.video_path = "not-derivable-from-the-id.mkv"
+        db_session.commit()
+        (tmp_raw_dir / "not-derivable-from-the-id.mkv").write_bytes(b"recorded")
+
+        with patch("api.routers.matches.process_match"):
+            resp = client.post(f"/api/v1/matches/{upload_match.id}/reprocess")
+        assert resp.status_code == 202
+
+    def test_reprocess_404s_when_the_recorded_file_is_gone(
+        self, client, upload_match, tmp_raw_dir, db_session
+    ):
+        """
+        A stale name must not fall through to guessing and pick up an unrelated
+        leftover file for the same match.
+        """
+        upload_match.video_path = f"{upload_match.id}.mkv"
+        db_session.commit()
+        (tmp_raw_dir / f"{upload_match.id}.mp4").write_bytes(b"a different upload")
+
+        resp = client.post(f"/api/v1/matches/{upload_match.id}/reprocess")
+        assert resp.status_code == 404
+
+    def test_reprocess_still_works_for_matches_uploaded_before_this_column(
+        self, client, upload_match, tmp_raw_dir
+    ):
+        """video_path is NULL for every row that predates it."""
+        assert upload_match.video_path is None
+        (tmp_raw_dir / f"{upload_match.id}.mp4").write_bytes(b"legacy upload")
+
+        with patch("api.routers.matches.process_match"):
+            resp = client.post(f"/api/v1/matches/{upload_match.id}/reprocess")
+        assert resp.status_code == 202
+
+    def test_a_directory_component_in_the_stored_name_cannot_escape_raw_dir(
+        self, client, upload_match, tmp_raw_dir, db_session, tmp_path
+    ):
+        """
+        Only upload writes this column today, from a UUID and an allowlisted
+        suffix. This holds the line structurally so a future writer — an import
+        or a manual DB fixup — cannot turn it into a traversal.
+        """
+        outside = tmp_path.parent / "outside.mp4"
+        outside.write_bytes(b"not in raw_dir")
+        upload_match.video_path = f"../{outside.name}"
+        db_session.commit()
+
+        resp = client.post(f"/api/v1/matches/{upload_match.id}/reprocess")
+        assert resp.status_code == 404

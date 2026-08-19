@@ -48,7 +48,7 @@ Single-camera limitations to keep in mind:
 - /utils → Video I/O, coordinate transforms, visualization helpers
 - /scripts → Pipeline runner, seed script, model training, weight download
 - /data → Raw footage, processed clips, model weights (gitignored)
-- /tests → Pytest test suite (267 passing in CI, torch-free)
+- /tests → Pytest test suite (273 passing in CI, torch-free)
 - /alembic → DB migrations (initial → password_hash → frame_dims → speed_zones → pitch_calibration)
 - Dockerfile → CPU-only multi-stage build
 - .github/workflows/ci.yml → lint + test + docker-build + tsc on every push
@@ -65,8 +65,8 @@ Single-camera limitations to keep in mind:
 ## Environment
 
 - Python: `/usr/local/bin/python3.11` (no conda on this machine)
-- Run tests (what CI runs): `/usr/local/bin/python3.11 -m pytest tests/ -q --ignore=tests/test_detection` → 267 pass
-- API-only subset: `/usr/local/bin/python3.11 -m pytest tests/test_api/ tests/test_db/ -q` → 167 pass
+- Run tests (what CI runs): `/usr/local/bin/python3.11 -m pytest tests/ -q --ignore=tests/test_detection` → 273 pass
+- API-only subset: `/usr/local/bin/python3.11 -m pytest tests/test_api/ tests/test_db/ -q` → 173 pass
 - `tests/test_detection/` still needs torch + ultralytics and runs nowhere
 - Start API: `/usr/local/bin/python3.11 -m uvicorn api.main:app --reload`
 - GPU: configure in config/settings.py (CUDA device index); default is CPU for single-camera uploads
@@ -103,11 +103,22 @@ Single-camera limitations to keep in mind:
   `_enqueue_processing` helper, so a broker that is down marks the match `failed` and returns
   503 rather than stranding it as "processing". The on-disk path convention lives in one place,
   `config.settings.find_raw_video()`, shared with `tasks/pipeline.py`.
+- **`Match.video_path` records where the upload went** (2026-08-19). It was dead
+  schema from the initial migration until then, so every reader guessed the file
+  name back from the match id by testing each allowed extension. Upload now
+  stores the **bare file name** — not a full path, because `raw_dir` differs
+  between a laptop and Cloud Run — and `find_raw_video(match_id, stored_name)`
+  reads it. A recorded name that no longer exists returns None rather than
+  falling through to guessing, so a stale entry can't resurrect an unrelated
+  leftover file for the same match. The extension scan survives only as the
+  fallback for rows uploaded before the column was populated (it is NULL there);
+  delete it once no such rows remain. `find_raw_video` applies `Path(name).name`
+  so a future writer of that column cannot turn it into a path traversal.
 - Next.js 14 dashboard (match list, match detail, player profile + prediction card)
 - **Dockerfile** — CPU-only multi-stage build; `alembic upgrade head` on startup
 - **.dockerignore** — excludes model weights, raw footage, node_modules, .env
 - **GitHub Actions CI** (.github/workflows/ci.yml) — all 3 jobs passing:
-  - backend: ruff lint + pytest (267 tests) using requirements-test.txt
+  - backend: ruff lint + pytest (273 tests) using requirements-test.txt
   - docker-build: builds API image (requirements-ci.txt, ~30s) on every push
   - dashboard: npm ci + tsc --noEmit
 - **requirements-ci.txt**: slim install for the API image (no torch/opencv/paddlepaddle)
@@ -123,7 +134,7 @@ Single-camera limitations to keep in mind:
 
 ## Next Session — Pick Up Here
 
-**Phases 1–6 complete. 267 tests passing in CI. API live on Cloud Run.**
+**Phases 1–6 complete. 273 tests passing in CI. API live on Cloud Run.**
 
 **Formation detection is live end to end** — calibration API → homography →
 `pitch_history` → formation → DB → summary API → dashboard card.

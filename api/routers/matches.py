@@ -300,9 +300,15 @@ def upload_video(
             detail=f"Unsupported format. Allowed: {', '.join(sorted(ALLOWED_VIDEO_EXTENSIONS))}",
         )
 
-    dest = settings.raw_dir / f"{match.id}{suffix}"
+    # Name built from the match id and the suffix checked above, never from
+    # file.filename — that is caller-supplied and would put its directory
+    # separators straight into the path. find_raw_video reads this back.
+    name = f"{match.id}{suffix}"
+    dest = settings.raw_dir / name
     with dest.open("wb") as out:
         shutil.copyfileobj(file.file, out)
+
+    match.video_path = name
 
     _enqueue_processing(match, db)
 
@@ -323,7 +329,7 @@ def reprocess_match(
     does not do this itself — a save button that silently starts a long job is
     a surprising side effect.
     """
-    if find_raw_video(match.id) is None:
+    if find_raw_video(match.id, match.video_path) is None:
         raise HTTPException(
             status_code=404,
             detail="No source video for this match. Upload it again.",
