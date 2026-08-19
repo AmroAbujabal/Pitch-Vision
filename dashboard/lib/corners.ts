@@ -29,6 +29,14 @@ const MIN_AREA_PX = 10_000;
 /** Cross products under this are treated as collinear. */
 const COLLINEAR_EPS = 1e-6;
 
+/**
+ * One message for both order mistakes: a wrong winding and a wrong starting
+ * corner have the same remedy, and the coach does not need to know which of
+ * the two they made.
+ */
+const ORDER_PROBLEM =
+  "Those corners are out of order. Clear and place them in order: top-left, top-right, bottom-right, bottom-left.";
+
 type Rect = Pick<DOMRect, "left" | "top" | "width" | "height">;
 
 /**
@@ -56,9 +64,17 @@ export function toVideoPixels(
 /**
  * Why these four corners cannot be used, or null if they can.
  *
- * A pitch seen through one fixed camera is always a convex quadrilateral, so
- * requiring convexity rejects both the collinear case (zero cross product) and
- * the corners-clicked-out-of-order bowtie (sign flip) with one test.
+ * Exactly one of the 24 orderings of four corners is right, and every other one
+ * still solves — a good homography of a different pitch than the one on camera,
+ * which nothing downstream can detect. Two independent things therefore need
+ * testing: the direction the quad is walked (all four cross products positive
+ * for clockwise in y-down pixels) and which corner comes first (winding says
+ * nothing about it, so the corners are checked against the frame positions
+ * their names claim, which assumes the touchline camera this project is for).
+ *
+ * `utils/pitch_corners.py` is the server-side twin of this function and carries
+ * the full explanation of what each wrong ordering does to the analytics. Keep
+ * the two in step.
  */
 export function quadProblem(points: Point[]): string | null {
   if (points.length !== 4) {
@@ -79,9 +95,13 @@ export function quadProblem(points: Point[]): string | null {
     return "Those corners sit on a line. Click the four corners of the pitch itself.";
   }
 
-  const positive = crosses.filter((c) => c > 0).length;
-  if (positive !== 0 && positive !== 4) {
-    return "Those corners cross over each other. Clear and place them in order: top-left, top-right, bottom-right, bottom-left.";
+  if (!crosses.every((c) => c > 0)) {
+    return ORDER_PROBLEM;
+  }
+
+  const [tl, tr, br, bl] = points;
+  if (!(tl.x < tr.x && bl.x < br.x && tl.y < bl.y && tr.y < br.y)) {
+    return ORDER_PROBLEM;
   }
 
   if (shoelaceArea(points) < MIN_AREA_PX) {

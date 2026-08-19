@@ -62,6 +62,34 @@ class TestSetCalibration:
         assert _put(client, seeded["match"].id,
                     pitch_corners=bad).status_code == 422
 
+    def test_rejects_reverse_wound_corners(self, client, seeded, db_session):
+        # The picker rejects this too, but the picker is not the only writer and
+        # a mirrored pitch is something nothing downstream can notice.
+        resp = _put(client, seeded["match"].id,
+                    pitch_corners=list(reversed(VALID_CORNERS)))
+        assert resp.status_code == 422
+
+        db_session.expire_all()
+        assert db_session.get(Match, seeded["match"].id).pitch_corners is None
+
+    def test_rejects_corners_rotated_out_of_order(self, client, seeded):
+        # Clockwise, so the winding is right, but it starts from the wrong
+        # corner: x=0 lands on the far goal and every formation comes back
+        # reversed. See utils/pitch_corners.py.
+        rotated = VALID_CORNERS[2:] + VALID_CORNERS[:2]
+        assert _put(client, seeded["match"].id,
+                    pitch_corners=rotated).status_code == 422
+
+    def test_rejects_collinear_corners(self, client, seeded):
+        assert _put(client, seeded["match"].id, pitch_corners=[
+            [100.0, 100.0], [400.0, 400.0], [700.0, 700.0], [1000.0, 1000.0],
+        ]).status_code == 422
+
+    def test_rejects_a_quad_too_small_to_be_a_pitch(self, client, seeded):
+        assert _put(client, seeded["match"].id, pitch_corners=[
+            [100.0, 100.0], [104.0, 100.0], [104.0, 104.0], [100.0, 104.0],
+        ]).status_code == 422
+
     def test_rejects_unknown_defended_end(self, client, seeded):
         assert _put(client, seeded["match"].id,
                     home_defends_end="sideways").status_code == 422

@@ -25,6 +25,7 @@ from typing import Optional
 from loguru import logger
 
 from config.settings import settings
+from utils.pitch_corners import corner_problem
 
 # Pitch grass background colour (BGR).
 _PITCH_GREEN_BGR: tuple[int, int, int] = (34, 139, 34)
@@ -156,8 +157,9 @@ class PitchHomography:
         corners instead of detecting them, and they map to the standard pitch
         rectangle. Returns True on success.
         """
-        if len(pixel_corners) != 4:
-            raise ValueError("Need exactly 4 pitch corners, ordered TL → TR → BR → BL")
+        problem = corner_problem([tuple(c) for c in pixel_corners])
+        if problem:
+            raise ValueError(problem)
         return self._solve(np.float32(pixel_corners), self._standard_corners())
 
     def fit_from_points(

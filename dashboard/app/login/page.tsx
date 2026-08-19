@@ -3,22 +3,9 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
+import { safeNext } from "@/lib/safe-next";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/**
- * Keep post-login navigation on this site.
- *
- * Middleware only ever sets `next` to a pathname, but the query string is
- * whatever the visitor's URL says. Without this, a link to
- * `/login?next=https://example.com` would hand a freshly signed-in coach
- * straight to someone else's page. A protocol-relative `//host` is rejected
- * for the same reason.
- */
-function safeNext(value: string | null): string {
-  if (!value || !value.startsWith("/") || value.startsWith("//")) return "/";
-  return value;
-}
 
 export default function LoginPage() {
   const router = useRouter();

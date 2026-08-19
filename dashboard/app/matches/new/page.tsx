@@ -29,7 +29,11 @@ export default function NewMatchPage() {
         body: JSON.stringify({
           home_team: homeTeam.trim(),
           away_team: awayTeam.trim(),
-          match_date: matchDate ? new Date(matchDate).toISOString() : null,
+          // Sent as the plain `YYYY-MM-DD` the date input produces. Pushing
+          // it through `Date` first made it UTC midnight, which only came back
+          // as the right day because the naive DateTime column dropped the
+          // zone again — see lib/dates.ts.
+          match_date: matchDate || null,
           venue: venue.trim() || null,
           fps: Number(fps),
         }),

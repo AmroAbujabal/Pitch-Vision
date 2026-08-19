@@ -45,10 +45,10 @@ Single-camera limitations to keep in mind:
 - /api → FastAPI routers, schemas, auth
 - /database → SQLAlchemy models, Alembic migrations (5 versions)
 - /dashboard → Next.js 14 coach dashboard
-- /utils → Video I/O, coordinate transforms, visualization helpers
+- /utils → Video I/O, coordinate transforms, visualization helpers, pitch-corner validation (`pitch_corners.py`, cv2-free so the API can import it)
 - /scripts → Pipeline runner, seed script, model training, weight download
 - /data → Raw footage, processed clips, model weights (gitignored)
-- /tests → Pytest test suite (273 passing in CI, torch-free)
+- /tests → Pytest test suite (291 passing in CI, torch-free)
 - /alembic → DB migrations (initial → password_hash → frame_dims → speed_zones → pitch_calibration)
 - Dockerfile → CPU-only multi-stage build
 - .github/workflows/ci.yml → lint + test + docker-build + tsc on every push
@@ -65,8 +65,8 @@ Single-camera limitations to keep in mind:
 ## Environment
 
 - Python: `/usr/local/bin/python3.11` (no conda on this machine)
-- Run tests (what CI runs): `/usr/local/bin/python3.11 -m pytest tests/ -q --ignore=tests/test_detection` → 273 pass
-- API-only subset: `/usr/local/bin/python3.11 -m pytest tests/test_api/ tests/test_db/ -q` → 173 pass
+- Run tests (what CI runs): `/usr/local/bin/python3.11 -m pytest tests/ -q --ignore=tests/test_detection` → 291 pass
+- API-only subset: `/usr/local/bin/python3.11 -m pytest tests/test_api/ tests/test_db/ -q` → 177 pass
 - `tests/test_detection/` still needs torch + ultralytics and runs nowhere
 - Start API: `/usr/local/bin/python3.11 -m uvicorn api.main:app --reload`
 - GPU: configure in config/settings.py (CUDA device index); default is CPU for single-camera uploads
@@ -114,11 +114,35 @@ Single-camera limitations to keep in mind:
   fallback for rows uploaded before the column was populated (it is NULL there);
   delete it once no such rows remain. `find_raw_video` applies `Path(name).name`
   so a future writer of that column cannot turn it into a path traversal.
+- **Pitch corners are validated where they arrive, not just in the picker**
+  (2026-08-19). `utils/pitch_corners.corner_problem()` accepts **exactly one of
+  the 24 orderings** of four corners — cv2 fits all the others happily, so a
+  mirrored or transposed pitch is not detectable downstream. Winding alone is
+  not enough; the starting corner has to be pinned too. That module's docstring
+  is the canonical explanation of what each wrong ordering does. It is called
+  from a `model_validator` on `MatchCalibration` (a curl caller gets a 422) and
+  from `PitchHomography.fit_from_corners` (covering `run_pipeline
+  --pitch-corners` and pre-API rows), and is free of cv2/numpy because the API
+  image has no opencv. `dashboard/lib/corners.ts` is its twin for the picker —
+  two languages either side of the wire, keep them in step.
+- **Dates on the wire have two shapes, and the dashboard normalises both**
+  (2026-08-19, `dashboard/lib/dates.ts`). Naive `DateTime` columns serialise
+  with no zone, so `created_at` — written by the database's UTC `now()` — was
+  read as local and dated an evening upload to tomorrow. Calendar dates arrive
+  either bare (`"2026-08-24"` from the prediction route) or as
+  `"2026-08-24T00:00:00"`, and `new Date` reads the first as UTC midnight and
+  the second as *local* midnight. `formatDay`/`isoDay` pin a calendar date to
+  the day it names; `formatInstant`/`isoInstant` state the UTC a timestamp
+  already is and render it in an explicit `DISPLAY_ZONE`. **Both ends of both
+  conversions are named on purpose** — the cards render in a server component,
+  so "local" would mean whatever zone the Node process is in, which is UTC in
+  the container and reintroduced the whole bug in production while looking fixed
+  in dev. Nothing here depends on the ambient `TZ`, so the tests hold in any.
 - Next.js 14 dashboard (match list, match detail, player profile + prediction card)
 - **Dockerfile** — CPU-only multi-stage build; `alembic upgrade head` on startup
 - **.dockerignore** — excludes model weights, raw footage, node_modules, .env
 - **GitHub Actions CI** (.github/workflows/ci.yml) — all 3 jobs passing:
-  - backend: ruff lint + pytest (273 tests) using requirements-test.txt
+  - backend: ruff lint + pytest (291 tests) using requirements-test.txt
   - docker-build: builds API image (requirements-ci.txt, ~30s) on every push
   - dashboard: npm ci + tsc --noEmit
 - **requirements-ci.txt**: slim install for the API image (no torch/opencv/paddlepaddle)
@@ -134,7 +158,7 @@ Single-camera limitations to keep in mind:
 
 ## Next Session — Pick Up Here
 
-**Phases 1–6 complete. 273 tests passing in CI. API live on Cloud Run.**
+**Phases 1–6 complete. 291 tests passing in CI. API live on Cloud Run.**
 
 **Formation detection is live end to end** — calibration API → homography →
 `pitch_history` → formation → DB → summary API → dashboard card.

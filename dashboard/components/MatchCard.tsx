@@ -1,23 +1,21 @@
 import Link from "next/link";
 import { ChevronRight } from "lucide-react";
 import type { MatchListItem } from "@/lib/types";
+import { formatDay, formatInstant, isoDay, isoInstant } from "@/lib/dates";
 import StatusBadge from "./StatusBadge";
 
 interface Props {
   match: MatchListItem;
 }
 
-function fmtDate(dateStr: string | null): string {
-  if (!dateStr) return "—";
-  return new Date(dateStr).toLocaleDateString("en-AE", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
-
 export default function MatchCard({ match }: Props) {
   const isProcessable = match.processing_status === "done";
+
+  // A chosen match day is a calendar date; the upload time it falls back to is
+  // an instant. See lib/dates.ts for why that distinction matters.
+  const day = match.match_date;
+  const shownDate = day ? formatDay(day) : formatInstant(match.created_at);
+  const machineDate = day ? isoDay(day) : isoInstant(match.created_at);
 
   return (
     <Link
@@ -29,10 +27,10 @@ export default function MatchCard({ match }: Props) {
       <div className="flex items-center justify-between">
         <StatusBadge status={match.processing_status} />
         <time
-          dateTime={match.match_date ?? match.created_at}
+          dateTime={machineDate}
           className="text-2xs font-medium text-slate-400 tabular-nums"
         >
-          {fmtDate(match.match_date ?? match.created_at)}
+          {shownDate}
         </time>
       </div>
 

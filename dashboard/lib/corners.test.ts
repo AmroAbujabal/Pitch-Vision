@@ -123,6 +123,24 @@ describe("quadProblem", () => {
     ).toMatch(/order|cross/i);
   });
 
+  it("rejects the same quad walked in reverse", () => {
+    // BL -> BR -> TR -> TL. Convex, the right area, every corner a real pitch
+    // corner — only the direction is wrong, and it mirrors pitch width, so the
+    // left wing's heatmap comes back on the right.
+    expect(quadProblem([...perspective].reverse())).toMatch(/order/i);
+  });
+
+  it("rejects every rotation of the correct order", () => {
+    // The gap a winding test alone leaves: all three rotations are clockwise,
+    // so their cross products are all positive too. The 180° one
+    // (BR -> BL -> TL -> TR) mirrors length — x=0 on the far goal, a 4-2-3-1
+    // read as 1-3-2-4 — and the 90° ones transpose the axes entirely.
+    for (const shift of [1, 2, 3]) {
+      const rotated = [...perspective.slice(shift), ...perspective.slice(0, shift)];
+      expect(quadProblem(rotated)).toMatch(/order/i);
+    }
+  });
+
   it("rejects duplicate points", () => {
     expect(
       quadProblem([

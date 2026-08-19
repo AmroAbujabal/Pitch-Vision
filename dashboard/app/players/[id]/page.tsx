@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ChevronRight, TrendingUp, TrendingDown, Minus } from "lucide-react";
 import { api } from "@/lib/api";
 import { redirectIfUnauthorized } from "@/lib/guard";
+import { formatDay } from "@/lib/dates";
 import type { DevelopmentScore, PlayerPrediction } from "@/lib/types";
 import StatsHistoryChart from "@/components/StatsHistoryChart";
 
@@ -40,11 +41,7 @@ function MetricPill({
 }
 
 function TrendRow({ score }: { score: DevelopmentScore }) {
-  const week = new Date(score.week_start).toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
+  const week = formatDay(score.week_start, "2-digit");
   return (
     <tr>
       <td className="whitespace-nowrap text-slate-700">{week}</td>
@@ -89,12 +86,7 @@ function PredictionCard({ prediction }: { prediction: PlayerPrediction }) {
             Next week prediction
           </h2>
           <p className="mt-0.5 text-xs text-slate-400">
-            Week of{" "}
-            {new Date(prediction.week).toLocaleDateString("en-GB", {
-              day: "2-digit",
-              month: "short",
-              year: "numeric",
-            })}
+            Week of {formatDay(prediction.week, "2-digit")}
           </p>
         </div>
         {isFallback && (

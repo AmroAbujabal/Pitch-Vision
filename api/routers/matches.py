@@ -11,7 +11,7 @@ from typing import Literal, Optional
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -21,6 +21,7 @@ from api.schemas import MatchSummaryResponse, MatchPlayerResponse
 from config.settings import settings, ALLOWED_VIDEO_EXTENSIONS, find_raw_video
 from database.models import Match, Player, PlayerMatchStats
 from tasks.pipeline import process_match
+from utils.pitch_corners import corner_problem
 
 router = APIRouter(dependencies=[Depends(get_current_academy_id)])
 
@@ -108,6 +109,25 @@ class MatchCalibration(BaseModel):
     home_defends_end: Literal["low", "high"]
 
     model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="after")
+    def _corners_are_usable(self) -> "MatchCalibration":
+        """
+        Reject a quad the pipeline can only misread.
+
+        `home_defends_end` is validated against a `Literal`, but it only means
+        anything relative to the corner order, so the geometry that gives it
+        meaning is checked here too. See `utils.pitch_corners.corner_problem`
+        for why a wrong order cannot be caught later.
+
+        The dashboard picker checks the same thing before it lets a coach save,
+        but it is not the only writer — `scripts/run_pipeline.py --pitch-corners`
+        and any curl caller reach the column too.
+        """
+        problem = corner_problem(self.pitch_corners)
+        if problem:
+            raise ValueError(problem)
+        return self
 
 
 # ---------------------------------------------------------------------------
