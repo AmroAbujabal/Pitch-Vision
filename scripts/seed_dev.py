@@ -1,10 +1,23 @@
+import os
+
+from api.auth import hash_password
 from database.session import engine, SessionLocal
 from database.models import Base, Academy, Match, Player, PlayerMatchStats
+
+# The dashboard signs in with the academy id as the username, so the seeded
+# academy needs a password hash — there is no API endpoint that sets one.
+PASSWORD = os.environ.get("SEED_PASSWORD", "devpassword")
 
 Base.metadata.create_all(engine)
 db = SessionLocal()
 
-a = Academy(name='Al Ain FC', city='Al Ain', country='UAE', tier='pro')
+a = Academy(
+    name='Al Ain FC',
+    city='Al Ain',
+    country='UAE',
+    tier='pro',
+    password_hash=hash_password(PASSWORD),
+)
 db.add(a)
 db.flush()
 
@@ -39,3 +52,4 @@ db.commit()
 
 print('ACADEMY_ID =', a.id)
 print('MATCH_ID   =', m.id)
+print('PASSWORD   =', PASSWORD)

@@ -1,4 +1,7 @@
 import Link from "next/link";
+import { cookies } from "next/headers";
+import SignOutButton from "./SignOutButton";
+import { SESSION_COOKIE } from "@/lib/session";
 
 // SVG pitch icon — no emoji
 function PitchIcon() {
@@ -11,15 +14,32 @@ function PitchIcon() {
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
     >
-      <rect x="1" y="3" width="18" height="14" rx="1.5" stroke="white" strokeWidth="1.5" />
+      <rect
+        x="1"
+        y="3"
+        width="18"
+        height="14"
+        rx="1.5"
+        stroke="white"
+        strokeWidth="1.5"
+      />
       <line x1="10" y1="3" x2="10" y2="17" stroke="white" strokeWidth="1.5" />
       <circle cx="10" cy="10" r="2.5" stroke="white" strokeWidth="1.5" />
-      <path d="M1 6.5h2.5M1 13.5h2.5M16.5 6.5H19M16.5 13.5H19" stroke="white" strokeWidth="1.5" strokeLinecap="round" />
+      <path
+        d="M1 6.5h2.5M1 13.5h2.5M16.5 6.5H19M16.5 13.5H19"
+        stroke="white"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
 
 export default function Nav() {
+  // Signed out, the only page reachable is /login, where "Sign out" and a link
+  // to the match list are both dead ends.
+  const signedIn = cookies().has(SESSION_COOKIE);
+
   return (
     <>
       <a href="#main-content" className="skip-link">
@@ -48,15 +68,17 @@ export default function Nav() {
 
           {/* Right side */}
           <div className="flex items-center gap-6">
-            <Link
-              href="/"
-              className="text-xs font-medium text-slate-400 hover:text-white transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 rounded px-1"
-            >
-              Matches
-            </Link>
-            <span className="hidden sm:block text-2xs font-medium text-slate-600 uppercase tracking-widest">
-              UAE Academy Analytics
-            </span>
+            {signedIn && (
+              <>
+                <Link
+                  href="/"
+                  className="text-xs font-medium text-slate-400 hover:text-white transition-colors duration-150 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 rounded px-1"
+                >
+                  Matches
+                </Link>
+                <SignOutButton />
+              </>
+            )}
           </div>
         </div>
       </nav>

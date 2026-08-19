@@ -145,3 +145,47 @@ class TestUploadVideo:
             upload_match.frame_width,
             upload_match.frame_height,
         )
+
+
+class TestBrokerFailureDoesNotStrandTheMatch:
+    """
+    Regression: the status is committed as "processing" before the task is
+    enqueued, so a broker that is down used to leave the match reading
+    "processing" forever with nothing to pick it up. Found by clicking Upload
+    on a machine with no Redis running.
+    """
+
+    def test_returns_503_when_the_task_cannot_be_queued(
+        self, client, upload_match, tmp_raw_dir
+    ):
+        with patch("api.routers.matches.process_match") as mock_task:
+            mock_task.delay.side_effect = OSError("no broker")
+            resp = client.post(
+                f"/api/v1/matches/{upload_match.id}/upload-video",
+                files=_mp4(),
+            )
+        assert resp.status_code == 503
+
+    def test_match_is_marked_failed_not_left_processing(
+        self, client, upload_match, tmp_raw_dir, db_session
+    ):
+        with patch("api.routers.matches.process_match") as mock_task:
+            mock_task.delay.side_effect = OSError("no broker")
+            client.post(
+                f"/api/v1/matches/{upload_match.id}/upload-video",
+                files=_mp4(),
+            )
+        db_session.expire_all()
+        match = db_session.get(Match, upload_match.id)
+        assert match.processing_status == "failed"
+
+    def test_the_saved_video_is_kept_so_the_upload_can_be_retried(
+        self, client, upload_match, tmp_raw_dir
+    ):
+        with patch("api.routers.matches.process_match") as mock_task:
+            mock_task.delay.side_effect = OSError("no broker")
+            client.post(
+                f"/api/v1/matches/{upload_match.id}/upload-video",
+                files=_mp4(b"kept"),
+            )
+        assert (tmp_raw_dir / f"{upload_match.id}.mp4").read_bytes() == b"kept"

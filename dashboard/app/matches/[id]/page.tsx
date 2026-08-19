@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Crosshair } from "lucide-react";
 import { api } from "@/lib/api";
+import { redirectIfUnauthorized } from "@/lib/guard";
 import PitchControlBar from "@/components/PitchControlBar";
 import PlayerTable from "@/components/PlayerTable";
 import StatusBadge from "@/components/StatusBadge";
@@ -60,7 +61,8 @@ export default async function MatchDetailPage({ params }: Props) {
       api.matches.summary(params.id),
       api.matches.players(params.id),
     ]);
-  } catch {
+  } catch (err) {
+    redirectIfUnauthorized(err);
     return (
       <main id="main-content" className="py-8">
         <div className="rounded-xl border border-red-200 bg-red-50 p-6">
@@ -77,6 +79,13 @@ export default async function MatchDetailPage({ params }: Props) {
       </main>
     );
   }
+
+  // "unknown" is what formation.py returns when it has no direction or too few
+  // tracked players; null means the match has not been processed yet.
+  const needsCalibration =
+    summary.processing_status === "done" &&
+    (summary.home_formation === "unknown" ||
+      summary.away_formation === "unknown");
 
   return (
     <main id="main-content" className="space-y-5">
@@ -103,7 +112,22 @@ export default async function MatchDetailPage({ params }: Props) {
               {summary.player_count} players tracked
             </span>
           </div>
+          <Link
+            href={`/matches/${params.id}/calibrate`}
+            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2.5 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+          >
+            <Crosshair className="h-3.5 w-3.5" aria-hidden="true" />
+            Calibrate camera
+          </Link>
         </div>
+
+        {needsCalibration && (
+          <p className="mb-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            Formation is unavailable because this match has no pitch
+            calibration. Mark the four corners, then upload the video again to
+            pick it up.
+          </p>
+        )}
 
         {/* Match title */}
         <h1 className="mb-5 text-lg font-bold leading-tight text-slate-900">

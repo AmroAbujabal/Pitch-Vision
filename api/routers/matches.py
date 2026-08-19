@@ -278,13 +278,25 @@ def upload_video(
     match.processing_status = "processing"
     db.commit()
 
-    process_match.delay(
-        str(match.id),
-        str(match.academy_id),
-        match.fps,
-        match.frame_width,
-        match.frame_height,
-    )
+    try:
+        process_match.delay(
+            str(match.id),
+            str(match.academy_id),
+            match.fps,
+            match.frame_width,
+            match.frame_height,
+        )
+    except Exception:
+        # Without this the match is stranded: the status is already committed
+        # as "processing" but no worker will ever pick the task up, so the
+        # dashboard shows it working forever. Mark it failed so it reads
+        # honestly and can be uploaded again.
+        match.processing_status = "failed"
+        db.commit()
+        raise HTTPException(
+            status_code=503,
+            detail="Could not queue processing. The video was saved; try again.",
+        )
 
     return {"match_id": str(match.id), "status": "processing"}
 

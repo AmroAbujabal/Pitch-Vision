@@ -84,10 +84,11 @@ npm install
 cp .env.local.example .env.local
 # Edit .env.local:
 #   NEXT_PUBLIC_API_URL=http://localhost:8000
-#   NEXT_PUBLIC_ACADEMY_ID=<paste UUID from seed output>
 
 npm run dev
-# → http://localhost:3000
+# → http://localhost:3000, which redirects to /login.
+# Sign in with the academy UUID and password printed by scripts/seed_dev.py
+# (password comes from SEED_PASSWORD, default "devpassword").
 ```
 
 ### 3. Run tests
@@ -227,7 +228,7 @@ Copy `.env.example` → `.env`.
 | `FRAME_WIDTH` | `1920` | Fallback resolution when not set on match |
 | `FRAME_HEIGHT` | `1080` | Fallback resolution when not set on match |
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | Backend URL for the dashboard |
-| `NEXT_PUBLIC_ACADEMY_ID` | — | Club UUID to display in the dashboard |
+| `SEED_PASSWORD` | `devpassword` | Password given to the academy created by `scripts/seed_dev.py` |
 
 **Per-match camera settings** (set in `POST /api/v1/matches/` body):
 ```json
