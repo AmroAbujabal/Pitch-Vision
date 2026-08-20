@@ -34,6 +34,7 @@ class TestSetCalibration:
         assert resp.json() == {
             "pitch_corners": VALID_CORNERS,
             "home_defends_end": "low",
+            "half_time_seconds": None,
         }
 
         db_session.expire_all()
@@ -100,6 +101,48 @@ class TestSetCalibration:
             json={"pitch_corners": VALID_CORNERS},
         )
         assert resp.status_code == 422
+
+
+class TestHalfTime:
+
+    def test_stores_half_time_seconds(self, client, seeded, db_session):
+        match_id = seeded["match"].id
+        resp = _put(client, match_id, half_time_seconds=2730.5)
+
+        assert resp.status_code == 200
+        assert resp.json()["half_time_seconds"] == 2730.5
+
+        db_session.expire_all()
+        assert db_session.get(Match, match_id).half_time_seconds == 2730.5
+
+    def test_omitting_it_stores_null(self, client, seeded, db_session):
+        match_id = seeded["match"].id
+        assert _put(client, match_id).status_code == 200
+
+        db_session.expire_all()
+        assert db_session.get(Match, match_id).half_time_seconds is None
+
+    def test_clearing_it_is_possible(self, client, seeded, db_session):
+        """A coach who mis-typed the mark must be able to take it back, not
+        just overwrite it — omitting the field is how the picker clears it."""
+        match_id = seeded["match"].id
+        _put(client, match_id, half_time_seconds=2700.0)
+        _put(client, match_id)
+
+        db_session.expire_all()
+        assert db_session.get(Match, match_id).half_time_seconds is None
+
+    def test_rejects_zero(self, client, seeded):
+        assert _put(client, seeded["match"].id,
+                    half_time_seconds=0).status_code == 422
+
+    def test_rejects_negative(self, client, seeded):
+        assert _put(client, seeded["match"].id,
+                    half_time_seconds=-1.0).status_code == 422
+
+    def test_rejects_non_numeric(self, client, seeded):
+        assert _put(client, seeded["match"].id,
+                    half_time_seconds="45:30").status_code == 422
 
 
 # ---------------------------------------------------------------------------

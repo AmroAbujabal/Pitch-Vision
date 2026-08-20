@@ -104,9 +104,16 @@ class MatchCalibration(BaseModel):
                       Not derivable from the corners — goal positions don't say
                       who defends which one — and getting it backwards mirrors
                       the reported shape (a 4-2-3-1 comes back as "1-3-2-4").
+    half_time_seconds: seconds into the video at which the teams change ends,
+                      or omitted when the video is one half. Positions after it
+                      are measured from the opposite goal; without it a full
+                      match reports a blend of the true shape and its mirror.
+                      Seconds rather than frames so a later `fps` correction
+                      cannot silently move it.
     """
     pitch_corners: list[tuple[float, float]] = Field(..., min_length=4, max_length=4)
     home_defends_end: Literal["low", "high"]
+    half_time_seconds: Optional[float] = Field(default=None, gt=0)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -191,9 +198,13 @@ def set_calibration(
     away, so calibration saved afterwards only takes effect on the next run. The
     corners come from the camera's fixed framing, so a still from any match shot
     at that ground works.
+
+    `half_time_seconds` is optional and only matters for a video covering both
+    halves; leaving it out keeps the whole video in one direction.
     """
     match.pitch_corners = calibration.pitch_corners
     match.home_defends_end = calibration.home_defends_end
+    match.half_time_seconds = calibration.half_time_seconds
     db.commit()
     db.refresh(match)
     return match
