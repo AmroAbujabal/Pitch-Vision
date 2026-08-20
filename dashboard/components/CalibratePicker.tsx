@@ -17,6 +17,7 @@ import {
   toVideoPixels,
   type Point,
 } from "@/lib/corners";
+import { parseHalfTime } from "@/lib/half-time";
 
 /** Dots render small but must stay tappable. */
 const DOT_RADIUS = 5;
@@ -37,6 +38,7 @@ export default function CalibratePicker({ matchId }: { matchId: string }) {
   );
   const [corners, setCorners] = useState<Point[]>([]);
   const [defendsEnd, setDefendsEnd] = useState<DefendsEnd | null>(null);
+  const [halfTime, setHalfTime] = useState("");
   const [saved, setSaved] = useState(false);
   const [uploaded, setUploaded] = useState(false);
   const [busy, setBusy] = useState<"saving" | "uploading" | null>(null);
@@ -197,7 +199,12 @@ export default function CalibratePicker({ matchId }: { matchId: string }) {
   }
 
   const problem = corners.length === 4 ? quadProblem(corners) : null;
-  const canSave = corners.length === 4 && !problem && defendsEnd !== null;
+  const halfTimeParsed = parseHalfTime(halfTime);
+  const canSave =
+    corners.length === 4 &&
+    !problem &&
+    defendsEnd !== null &&
+    halfTimeParsed.problem === null;
 
   async function save() {
     if (!canSave) return;
@@ -210,6 +217,7 @@ export default function CalibratePicker({ matchId }: { matchId: string }) {
         body: JSON.stringify({
           pitch_corners: corners.map((p) => [p.x, p.y]),
           home_defends_end: defendsEnd,
+          half_time_seconds: halfTimeParsed.seconds,
         }),
       });
       if (!res.ok) {
@@ -435,6 +443,39 @@ export default function CalibratePicker({ matchId }: { matchId: string }) {
               </label>
             ))}
           </div>
+
+          <div className="mt-4 border-t border-slate-100 pt-4">
+            <label
+              htmlFor="half-time"
+              className="text-sm font-medium text-slate-700"
+            >
+              Half-time (optional)
+            </label>
+            <p id="half-time-help" className="mt-1 text-xs text-slate-400">
+              If this video covers both halves, the time on the video when the
+              teams changed ends — mm:ss. Leave it blank for a single half.
+            </p>
+            <input
+              id="half-time"
+              type="text"
+              inputMode="numeric"
+              placeholder="45:30"
+              value={halfTime}
+              onChange={(e) => {
+                setHalfTime(e.target.value);
+                setSaved(false);
+              }}
+              aria-describedby="half-time-help"
+              aria-invalid={halfTimeParsed.problem !== null}
+              className="mt-2 w-32 rounded border border-slate-200 px-2 py-1 font-mono text-sm text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+            />
+            {halfTimeParsed.problem && (
+              <p role="alert" className="mt-2 text-xs text-amber-700">
+                {halfTimeParsed.problem}
+              </p>
+            )}
+          </div>
+
           <p className="mt-2 text-xs text-slate-400">
             Left and right as they appear in the still above.
           </p>
