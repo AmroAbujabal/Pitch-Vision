@@ -5,6 +5,10 @@ pushed). Two of the three filed bugs were real, the third was not, and working
 out why turned up two more. Then `/code-review` found three defects in the fixes
 themselves, all of which were confirmed and fixed before the commit.
 
+**The next item, the half-time end swap, is designed but not built.** Two
+decisions are made and the fact-finding is done; nothing is written. Pick it up
+at next-steps item 1, which now carries the decisions and what they rest on.
+
 ## Goal
 
 Items 6, 7 and 8 from the previous handoff's next-steps: the open redirect in
@@ -12,6 +16,11 @@ the login page, reverse-winding pitch corners silently mirroring the pitch, and
 the match date that shifts a day. Chosen over the half-time end swap because
 three small independent fixes fit one session and all three were silent wrong
 answers rather than visible failures.
+
+Then, after that shipped, the half-time end swap was opened as a fresh piece of
+work and taken through brainstorming only — classified architectural, two design
+questions answered, no spec written and no code. The session ended there.
+**Nothing about it is approved for implementation.**
 
 ## Current State
 
@@ -39,7 +48,11 @@ answers rather than visible failures.
   `/karpathy-check`. Code review found 3 real defects in the fixes (see Failed
   Attempts); security found 1, also in a fix, also real; karpathy passed with
   warnings, two of which were acted on. All fixed before committing.
-- **Committed and pushed.** `origin/main` at `cf5a67d`. Working tree clean.
+- **Committed and pushed.** `origin/main` at `cf5a67d` (plus this handoff).
+  Working tree clean.
+- **Re-verified at session close, all green:** 291 pytest / 177 API subset /
+  ruff clean / tsc clean / 41 vitest. No code changed after `cf5a67d` — the
+  half-time work stopped at design.
 
 ## Active Files
 
@@ -149,9 +162,50 @@ Local-harness notes:
 
 ## Next steps
 
-1. **Half-time end swap** — `home_defends_end` describes the whole video, so a
-   full match mirrors one half. Needs a per-half split. Unchanged from before,
-   and now the largest remaining correctness gap.
+1. **Half-time end swap — designed, not built.** `home_defends_end` describes
+   the whole video, so a full match mirrors one half. Still the largest
+   remaining correctness gap. Brainstormed 2026-08-19; classified
+   **architectural** (it changes the meaning of a field the API, DB, pipeline
+   and dashboard share, and needs a migration).
+
+   **Decided:**
+   - **The coach enters a half-time time** on the calibration screen (mm:ss →
+     frame via `Match.fps`). Absent means today's whole-video behaviour — no
+     guessing, the same correct-or-silent stance as `home_defends_end` itself,
+     which is coach-supplied for the same reason. Auto-detecting the swap was
+     rejected: a wrong guess is exactly the silent mirror being removed.
+   - **Output stays one corrected formation per team.** Convert each
+     observation's x into "distance from *that half's* own goal" before
+     averaging, so both halves become comparable and the existing
+     `Match.home_formation` / `away_formation` are computed from the whole
+     match. No new columns, no dashboard change, and it uses more data than
+     either half alone. Per-half shapes are a later feature if asked for.
+
+   **Established, do not re-derive:**
+   - `Track.frame_history` and `Track.pitch_history` are **index-aligned** —
+     both appended per observation in `tracker._new_track`/`_update_track`, and
+     `run_pipeline` builds `pitch_history` from `bbox_history` — so attributing
+     an observation to a half is a filter on frame number. No tracker changes.
+   - **Formation is the only live direction-dependent metric.**
+     `metrics/pitch_control.compute_dangerous_zone_occupancy` does take a
+     `home_attack_direction`, but it has **zero callers**, so it is not
+     producing a mirrored number today and wiring it up is not part of this.
+     Pressing's "direction" is toward the ball carrier, not up-pitch. Physical
+     metrics, pitch control and heatmaps are direction-agnostic.
+   - So the change is contained: `metrics/formation.py` orients per-observation
+     rather than per-match (`_mean_depths` + `_orient_to_own_goal`), plus one
+     new field threaded migration → API → picker → `run_pipeline`.
+
+   **Still open, first thing to settle:** store the split as seconds into the
+   video or as a frame number? Seconds is more robust if `fps` is later
+   corrected; the pipeline consumes frames. Recommendation: store seconds,
+   convert at read time.
+
+   **Then:** present the sectioned design for approval → spec at
+   `docs/superpowers/specs/2026-08-19-half-time-end-swap-design.md` →
+   writing-plans. Note `detect_formation`'s 19 existing tests all pin the
+   no-swap path, so the new behaviour needs tests where one track's positions
+   straddle the split.
 2. **Frame dimensions are never sent.** `CalibratePicker` knows the real
    `frame.width/height` but `POST /matches/` takes the 1920x1080 default and
    `PUT /calibration` has no field to correct it. Only bites when the homography
