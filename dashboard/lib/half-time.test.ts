@@ -34,4 +34,27 @@ describe("parseHalfTime", () => {
   it("rejects zero, which the API rejects too", () => {
     expect(parseHalfTime("0:00").problem).not.toBeNull();
   });
+
+  it("accepts minutes past 59 in mm:ss, which is half-time's normal case", () => {
+    expect(parseHalfTime("72:15")).toEqual({ seconds: 4335, problem: null });
+  });
+
+  it("accepts exactly 60 minutes in mm:ss", () => {
+    expect(parseHalfTime("60:00")).toEqual({ seconds: 3600, problem: null });
+  });
+
+  it("agrees with the h:mm:ss spelling of the same instant", () => {
+    expect(parseHalfTime("1:12:15")).toEqual({
+      seconds: 4335,
+      problem: null,
+    });
+  });
+
+  it("rejects out-of-range minutes once hours are given", () => {
+    expect(parseHalfTime("1:75:00").problem).not.toBeNull();
+  });
+
+  it("rejects a single-digit seconds component", () => {
+    expect(parseHalfTime("5:5").problem).not.toBeNull();
+  });
 });
