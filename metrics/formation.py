@@ -153,22 +153,18 @@ def _distances_from_own_goal(
     (a hand-built track, or the single-position fallback) cannot be attributed
     to a half and takes the first half's direction.
     """
-    if track.pitch_history:
-        frames = track.frame_history
-        return [
-            _distance(
-                float(pos[0]),
-                _end_at(
-                    own_goal_end,
-                    half_time_frame,
-                    frames[i] if i < len(frames) else None,
-                ),
-            )
-            for i, pos in enumerate(track.pitch_history)
-        ]
-    if track.pitch_pos is not None:
-        return [_distance(float(track.pitch_pos[0]), own_goal_end)]
-    return []
+    if not track.pitch_history:
+        if track.pitch_pos is not None:
+            return [_distance(float(track.pitch_pos[0]), own_goal_end)]
+        return []
+
+    frames = track.frame_history
+    distances = []
+    for i, pos in enumerate(track.pitch_history):
+        frame_id = frames[i] if i < len(frames) else None
+        end = _end_at(own_goal_end, half_time_frame, frame_id)
+        distances.append(_distance(float(pos[0]), end))
+    return distances
 
 
 def _end_at(
