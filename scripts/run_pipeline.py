@@ -32,6 +32,21 @@ _OPPOSITE_END = {"low": "high", "high": "low"}
 PITCH_MARGIN_M = 5.0
 
 
+def half_time_frame(half_time_seconds: float | None, fps: float) -> int | None:
+    """The frame at which the teams change ends, or None if not stated.
+
+    frame_id is a plain zero-based decode counter (detector.process_video
+    increments it once per cap.read(), with no stride), so this is exact.
+
+    A non-positive fps would land the split on frame 0 and mirror the entire
+    match, so it declines instead — the same correct-or-silent stance the rest
+    of the calibration path takes.
+    """
+    if half_time_seconds is None or fps <= 0:
+        return None
+    return round(half_time_seconds * fps)
+
+
 def clamp_to_pitch(
     pitch: np.ndarray,
     pitch_length: float,
@@ -91,6 +106,7 @@ def run(
     frame_height: int | None = None,
     pitch_corners: list | None = None,
     home_defends_end: str | None = None,
+    half_time_seconds: float | None = None,
 ) -> None:
     """
     Run the full detection → tracking → metrics → persist pipeline.
@@ -105,6 +121,10 @@ def run(
     home_defends_end: "low" or "high" — which end of the pitch length axis the
                       home team defends. Required for formation detection;
                       without it both formations are reported "unknown".
+    half_time_seconds: seconds into the video at which the teams change ends.
+                      None (the default) treats the whole video as one
+                      direction. Converted to a frame here, where fps is
+                      resolved; detect_formation takes frames.
     """
     # Imported here, not at module scope, so the pipeline's pure helpers stay
     # importable (and testable) without torch installed.
@@ -303,12 +323,32 @@ def run(
     # The away team defends the opposite end. When the match has no annotated
     # direction both stay "unknown" by design — a confidently wrong formation is
     # worse than none for a coach.
+    #
+    # The half-time mark orients each observation to the goal that team was
+    # actually defending at the time; without it a video covering both halves
+    # averages a shape with its own mirror.
     away_defends_end = _OPPOSITE_END.get(home_defends_end or "")
+    split = half_time_frame(half_time_seconds, _fps)
+    if half_time_seconds is not None and split is None:
+        logger.warning(
+            f"half_time_seconds given with an unusable fps ({_fps}) — "
+            "treating the video as one direction"
+        )
+    elif split is not None and not home_defends_end:
+        # Inert rather than wrong: detect_formation declines without a
+        # direction, so the mark changes nothing. Said out loud because a coach
+        # who filled it in has reason to expect it mattered.
+        logger.warning(
+            "half_time_seconds given without a usable home_defends_end — "
+            "formations stay \"unknown\", so the half-time mark has no effect"
+        )
     home_formation = detect_formation(
-        all_tracked_frames, team="home", own_goal_end=home_defends_end
+        all_tracked_frames, team="home",
+        own_goal_end=home_defends_end, half_time_frame=split,
     )
     away_formation = detect_formation(
-        all_tracked_frames, team="away", own_goal_end=away_defends_end
+        all_tracked_frames, team="away",
+        own_goal_end=away_defends_end, half_time_frame=split,
     )
     logger.info(f"Formation — home: {home_formation}, away: {away_formation}")
 
@@ -359,6 +399,9 @@ if __name__ == "__main__":
                              "pitch corner maps to x=0). Required to label formations, "
                              "and only honoured alongside --pitch-corners; otherwise "
                              "formations are reported 'unknown'.")
+    parser.add_argument("--half-time-seconds", type=float, default=None,
+                        help="Seconds into the video at which the teams change "
+                             "ends. Omit for a video covering one half.")
     args = parser.parse_args()
 
     run(
@@ -369,4 +412,5 @@ if __name__ == "__main__":
         frame_height=args.frame_height,
         pitch_corners=json.loads(args.pitch_corners) if args.pitch_corners else None,
         home_defends_end=args.home_defends_end,
+        half_time_seconds=args.half_time_seconds,
     )

@@ -15,6 +15,7 @@ from scripts.run_pipeline import (
     PITCH_MARGIN_M,
     clamp_to_pitch,
     feet_pixels,
+    half_time_frame,
 )
 
 
@@ -86,3 +87,27 @@ class TestClampToPitch:
         pos = np.array([[999.0, 999.0]])
         clamp_to_pitch(pos, 105.0, 68.0)
         np.testing.assert_allclose(pos, [[999.0, 999.0]])
+
+
+# ---------------------------------------------------------------------------
+# Half-time seconds -> frame
+# ---------------------------------------------------------------------------
+
+class TestHalfTimeFrame:
+
+    def test_none_stays_none(self):
+        assert half_time_frame(None, 25.0) is None
+
+    def test_converts_with_the_match_fps(self):
+        assert half_time_frame(60.0, 25.0) == 1500
+        assert half_time_frame(60.0, 30.0) == 1800
+
+    def test_rounds_rather_than_truncates(self):
+        """A frame is 40 ms at 25 fps; truncating biases every mark early."""
+        assert half_time_frame(1.98, 25.0) == 50
+
+    def test_non_positive_fps_is_declined(self):
+        """A bad fps would put half-time at frame 0 — i.e. mirror the whole
+        match — so it degrades to "no split" instead."""
+        assert half_time_frame(60.0, 0.0) is None
+        assert half_time_frame(60.0, -25.0) is None

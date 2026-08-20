@@ -56,7 +56,8 @@ def process_match(
         # run(video_path, mid, uuid.UUID(academy_id),
         #     fps=fps, frame_width=frame_width, frame_height=frame_height,
         #     pitch_corners=match.pitch_corners if match else None,
-        #     home_defends_end=match.home_defends_end if match else None)
+        #     home_defends_end=match.home_defends_end if match else None,
+        #     half_time_seconds=match.half_time_seconds if match else None)
 
         if match is not None:
             match.processing_status = "done"
