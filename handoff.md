@@ -160,9 +160,9 @@ Modified:
 - What CI runs: `/usr/local/bin/python3.11 -m pytest tests/ -q --ignore=tests/test_detection` → 309
 - Lint: `/usr/local/bin/python3.11 -m ruff check .` → clean
 - Dashboard: `cd dashboard && ./node_modules/.bin/tsc --noEmit && npm test` → 56
-- The SDD ledger, briefs, reports and review packages are in
-  `.superpowers/sdd/2026-08-19-half-time-end-swap/` (git-ignored). **Do not delete it
-  until the fix wave is merged** — it is the only record of the findings.
+- The SDD workspace for this plan has been deleted; every finding it tracked was
+  fixed and merged, so the git history is the record now. The design doc and plan
+  remain under `docs/superpowers/`.
 - To drive the picker: API `PYTHONPATH=. REDIS_URL="memory://" python3.11 -m uvicorn
   api.main:app --port 8001`, dashboard `cd dashboard && TZ=UTC npm run dev`.
   Test academy `7ceca9ce-9c63-4330-8053-d658408c9fc6` / `devpassword`.
