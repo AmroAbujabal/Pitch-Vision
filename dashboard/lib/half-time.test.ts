@@ -57,4 +57,17 @@ describe("parseHalfTime", () => {
   it("rejects a single-digit seconds component", () => {
     expect(parseHalfTime("5:5").problem).not.toBeNull();
   });
+
+  it("accepts exactly 24 hours", () => {
+    expect(parseHalfTime("1440:00")).toEqual({ seconds: 86400, problem: null });
+  });
+
+  it("rejects past 24 hours, even with a plausible-looking hours digit", () => {
+    expect(parseHalfTime("1440:01").problem).not.toBeNull();
+    expect(parseHalfTime("25:00:00").problem).not.toBeNull();
+  });
+
+  it("rejects an unbounded hours digit rather than overflowing downstream", () => {
+    expect(parseHalfTime("999:00:00").problem).not.toBeNull();
+  });
 });

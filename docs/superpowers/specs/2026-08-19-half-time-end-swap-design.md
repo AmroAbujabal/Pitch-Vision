@@ -50,13 +50,13 @@ time. The deciding argument is the failure mode of being wrong later: if
 different moment in the video, while a stored second stays right. The conversion
 is done where `fps` is known, so nothing else has to carry both numbers.
 
-The value is time into the *video*, not the match clock. That is what the coach
+The value is time into the _video_, not the match clock. That is what the coach
 is scrubbing, and a video that starts before kickoff needs no separate offset.
 
 ### Orientation becomes absolute, and moves per-observation
 
 `_orient_to_own_goal` currently flips a `"high"` team's depths with
-`s.max() - s` — anchored on the deepest *observed* player. That is sound for a
+`s.max() - s` — anchored on the deepest _observed_ player. That is sound for a
 single direction, because every downstream read (line clustering, the goalkeeper
 isolation gap) is a difference. It cannot mix halves: two halves flipped about
 two different anchors are not on a common scale.
@@ -93,7 +93,7 @@ pipeline cannot reach.
 
 ### Output stays one formation per team
 
-Each observation is converted to "distance from the goal *that team* was
+Each observation is converted to "distance from the goal _that team_ was
 defending at that moment" and then averaged across the whole match. Both halves
 land on a common scale, so `Match.home_formation` / `away_formation` keep their
 current meaning and are computed from more data than either half alone.
@@ -164,8 +164,12 @@ failing the run.
   server-side.
 - **Two halves only.** Extra time and any format with more than one break stay
   wrong. Out of scope, and NULL leaves them exactly as they are today.
-- **`compute_dangerous_zone_occupancy` remains direction-dependent and
-  uncalled.** If it is ever wired up it needs the same per-observation
-  treatment; formation is the only live direction-dependent metric today.
-  Pressing's "direction" is toward the ball carrier, and physical metrics,
-  pitch control and heatmaps are direction-agnostic.
+- **`compute_dangerous_zone_occupancy` and `compute_recovery_shadow_score`
+  remain direction-dependent and uncalled.** `compute_recovery_shadow_score`
+  defaults `goal_pos` to `x = pitch_length`, the same fixed-end assumption as
+  `compute_dangerous_zone_occupancy`. If either is ever wired up it needs the
+  same per-observation treatment; formation is the only live
+  direction-dependent metric today. Most of pressing's "direction" is toward
+  the ball carrier, not a fixed end — `compute_recovery_shadow_score` is the
+  exception — and physical metrics, pitch control and heatmaps are
+  direction-agnostic.

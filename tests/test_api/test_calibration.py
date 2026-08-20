@@ -144,6 +144,23 @@ class TestHalfTime:
         assert _put(client, seeded["match"].id,
                     half_time_seconds="45:30").status_code == 422
 
+    def test_rejects_beyond_24_hours(self, client, seeded):
+        assert _put(client, seeded["match"].id,
+                    half_time_seconds=86_401).status_code == 422
+
+    def test_accepts_24_hours(self, client, seeded, db_session):
+        """The boundary itself is valid, and a large-but-plausible value
+        round-trips rather than overflowing downstream (round(1e308 * fps)
+        raises OverflowError without this ceiling)."""
+        match_id = seeded["match"].id
+        resp = _put(client, match_id, half_time_seconds=86_400)
+
+        assert resp.status_code == 200
+        assert resp.json()["half_time_seconds"] == 86_400
+
+        db_session.expire_all()
+        assert db_session.get(Match, match_id).half_time_seconds == 86_400
+
 
 # ---------------------------------------------------------------------------
 # Formations on GET /api/v1/matches/{id}/summary

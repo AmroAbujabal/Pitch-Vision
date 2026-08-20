@@ -444,6 +444,10 @@ export default function CalibratePicker({ matchId }: { matchId: string }) {
             ))}
           </div>
 
+          <p className="mt-2 text-xs text-slate-400">
+            Left and right as they appear in the still above.
+          </p>
+
           <div className="mt-4 border-t border-slate-100 pt-4">
             <label
               htmlFor="half-time"
@@ -458,27 +462,30 @@ export default function CalibratePicker({ matchId }: { matchId: string }) {
             <input
               id="half-time"
               type="text"
-              inputMode="numeric"
               placeholder="45:30"
               value={halfTime}
               onChange={(e) => {
                 setHalfTime(e.target.value);
                 setSaved(false);
               }}
-              aria-describedby="half-time-help"
+              aria-describedby={
+                halfTimeParsed.problem
+                  ? "half-time-help half-time-error"
+                  : "half-time-help"
+              }
               aria-invalid={halfTimeParsed.problem !== null}
               className="mt-2 w-32 rounded border border-slate-200 px-2 py-1 font-mono text-sm text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
             />
             {halfTimeParsed.problem && (
-              <p role="alert" className="mt-2 text-xs text-amber-700">
+              <p
+                id="half-time-error"
+                role="alert"
+                className="mt-2 text-xs text-amber-700"
+              >
                 {halfTimeParsed.problem}
               </p>
             )}
           </div>
-
-          <p className="mt-2 text-xs text-slate-400">
-            Left and right as they appear in the still above.
-          </p>
         </div>
       )}
 

@@ -113,7 +113,7 @@ class MatchCalibration(BaseModel):
     """
     pitch_corners: list[tuple[float, float]] = Field(..., min_length=4, max_length=4)
     home_defends_end: Literal["low", "high"]
-    half_time_seconds: Optional[float] = Field(default=None, gt=0)
+    half_time_seconds: Optional[float] = Field(default=None, gt=0, le=86_400)
 
     model_config = ConfigDict(from_attributes=True)
 

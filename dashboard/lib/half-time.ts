@@ -18,12 +18,18 @@
  *
  * `api/routers/matches.py` takes seconds and rejects anything <= 0; this
  * rejects the same values so the coach hears about it before the round trip.
+ * It also caps the total at `MAX_SECONDS`, mirroring the API's `le=86_400` —
+ * without it, an unbounded hours digit (`999:00:00`) would pass here and
+ * overflow when `scripts/run_pipeline.py` multiplies it by fps.
  */
 const HOURS_MINUTES_SECONDS = /^(\d+):([0-5]\d):([0-5]\d)$/;
 const MINUTES_SECONDS = /^(\d+):([0-5]\d)$/;
 
 const FORMAT_PROBLEM =
   "Enter the half-time mark as mm:ss — for example 45:30, or 72:15. Seconds need two digits.";
+
+/** 24 hours — longer than any match recording. Matches the API's `le=86_400`. */
+const MAX_SECONDS = 86_400;
 
 export function parseHalfTime(value: string): {
   seconds: number | null;
@@ -48,6 +54,12 @@ export function parseHalfTime(value: string): {
     return {
       seconds: null,
       problem: "Half-time cannot be at the very start of the video.",
+    };
+  }
+  if (total > MAX_SECONDS) {
+    return {
+      seconds: null,
+      problem: "Half-time cannot be more than 24 hours into the video.",
     };
   }
   return { seconds: total, problem: null };
