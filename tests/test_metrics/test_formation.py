@@ -257,3 +257,103 @@ class TestOutputContract:
         )
         total = sum(int(n) for n in result.split("-"))
         assert total == 10  # 11 players minus the goalkeeper
+
+
+# ---------------------------------------------------------------------------
+# Half-time end swap
+# ---------------------------------------------------------------------------
+
+def with_history(tracks: list, frames: list, mirror_from: int | None = None) -> list:
+    """Give every track a pitch_history observed at *frames*.
+
+    Positions come from each track's pitch_pos. When *mirror_from* is given,
+    observations at or after that frame are mirrored along the length axis —
+    which is exactly what a real second half looks like once the teams change
+    ends, since the camera does not move.
+    """
+    for t in tracks:
+        depth, lateral = t.pitch_pos
+        history = []
+        for f in frames:
+            x = 105.0 - depth if mirror_from is not None and f >= mirror_from else depth
+            history.append(np.array([x, lateral], dtype=float))
+        t.pitch_history = history
+        t.frame_history = list(frames)
+    return tracks
+
+
+class TestHalfTimeEndSwap:
+
+    def test_swapped_second_half_is_corrected(self):
+        """The teams change ends at frame 100. With the split declared, the
+        4-4-2 is still a 4-4-2."""
+        tracks = with_history(layout_442(), frames=[0, 50, 150, 199], mirror_from=100)
+        assert detect_formation(
+            frames_from(tracks), team="home",
+            own_goal_end="low", half_time_frame=100,
+        ) == "4-4-2"
+
+    def test_without_the_split_the_same_match_is_wrong(self):
+        """States the bug: the identical data, with no half-time mark, averages
+        each player's two ends together and collapses the shape."""
+        tracks = with_history(layout_442(), frames=[0, 50, 150, 199], mirror_from=100)
+        assert detect_formation(
+            frames_from(tracks), team="home", own_goal_end="low",
+        ) != "4-4-2"
+
+    def test_a_wrong_split_gives_a_wrong_answer(self):
+        """The risk this feature takes on, stated as a test.
+
+        A declared split is trusted. Positions that did not actually swap get
+        their second half mirrored, which averages every player with their own
+        mirror and collapses the shape. Nothing server-side can detect this —
+        the only mitigation is that the coach types the mark while watching the
+        video. Pinned so that a future "helpful" attempt to infer or correct
+        the split has to argue with this test rather than pass silently.
+        """
+        tracks = with_history(layout_442(), frames=[0, 50, 150, 199])
+        assert detect_formation(
+            frames_from(tracks), team="home",
+            own_goal_end="low", half_time_frame=100,
+        ) != "4-4-2"
+
+    def test_observation_on_the_boundary_is_second_half(self):
+        """Off-by-one here is a silent half-swap, so the boundary is pinned.
+
+        Every observation sits exactly on the split and is mirrored. Reading
+        the boundary as second-half orients all of them correctly; reading it
+        as first-half mirrors the whole match into 2-4-4.
+        """
+        tracks = with_history(layout_442(), frames=[100, 100, 100], mirror_from=100)
+        assert detect_formation(
+            frames_from(tracks), team="home",
+            own_goal_end="low", half_time_frame=100,
+        ) == "4-4-2"
+
+    def test_away_team_swaps_the_other_way(self):
+        """The away team starts at the high end and ends at the low one."""
+        positions = [(105 - x, y) for (x, y) in [
+            (5, 34),
+            (22, 10), (22, 26), (22, 42), (22, 58),
+            (52, 10), (52, 26), (52, 42), (52, 58),
+            (80, 26), (80, 42),
+        ]]
+        tracks = with_history(
+            make_team("away", positions), frames=[0, 150], mirror_from=100
+        )
+        assert detect_formation(
+            frames_from(tracks), team="away",
+            own_goal_end="high", half_time_frame=100,
+        ) == "4-4-2"
+
+    def test_observations_without_a_frame_are_first_half(self):
+        """pitch_history with no frame_history cannot be attributed, so it
+        takes the first half's direction — today's behaviour."""
+        tracks = layout_442()
+        for t in tracks:
+            t.pitch_history = [np.asarray(t.pitch_pos, dtype=float)]
+            t.frame_history = []
+        assert detect_formation(
+            frames_from(tracks), team="home",
+            own_goal_end="low", half_time_frame=100,
+        ) == "4-4-2"

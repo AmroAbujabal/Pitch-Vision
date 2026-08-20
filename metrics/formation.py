@@ -25,6 +25,12 @@ Given the own-goal end, detection is:
 Known limitations (single fixed camera): a partial-pitch view yields incomplete
 line counts, and a keeper standing level with the back line is not removed.
 Returns "unknown" when direction is unknown or there is too little data.
+
+Teams change ends at half-time, so the own-goal end is a property of *when* an
+observation was made, not of the match. Pass half_time_frame and each position
+is measured from the goal that team was actually defending at the time; without
+it the whole video is treated as one direction, and a full match reports a
+blend of the true shape and its mirror.
 """
 
 from __future__ import annotations
@@ -32,8 +38,10 @@ from __future__ import annotations
 import numpy as np
 from typing import Optional, TYPE_CHECKING
 
+from config.settings import settings
+
 if TYPE_CHECKING:
-    from tracking.types import TrackedFrame
+    from tracking.types import Track, TrackedFrame
 
 
 # Depth gap (metres) above which two adjacent players are treated as separate
@@ -51,14 +59,21 @@ def detect_formation(
     team: str = "home",
     *,
     own_goal_end: Optional[str] = None,
+    half_time_frame: Optional[int] = None,
     min_players: int = 5,
 ) -> str:
     """
     Detect the formation for *team* across *tracked_frames*.
 
-    own_goal_end: which end of the depth (x) axis holds the team's own goal —
-        "low" (own goal near x=0) or "high" (own goal near max x). Required:
-        when None (direction unknown) the result is "unknown", by design.
+    own_goal_end: which end of the depth (x) axis holds the team's own goal at
+        kick-off — "low" (own goal near x=0) or "high" (own goal near max x).
+        Required: when None (direction unknown) the result is "unknown", by
+        design.
+    half_time_frame: the frame at which the teams change ends. Observations at
+        or after it are oriented to the opposite goal. None means the whole
+        video was played in one direction, which is what a single half is and
+        what every caller did before this existed — it is never inferred,
+        because a wrong split re-introduces the mirror it exists to remove.
     min_players: minimum confirmed tracks with position data (goalkeeper
         included) needed to attempt a label.
 
@@ -67,12 +82,11 @@ def detect_formation(
     if own_goal_end not in ("low", "high"):
         return "unknown"
 
-    depths = _mean_depths(tracked_frames, team)
+    depths = _mean_depths(tracked_frames, team, own_goal_end, half_time_frame)
     if len(depths) < min_players or len(depths) < 2:
         return "unknown"
 
-    oriented = _orient_to_own_goal(depths, own_goal_end)
-    outfield = _drop_goalkeeper(oriented)
+    outfield = _drop_goalkeeper(np.sort(depths))
     if not outfield.size:
         return "unknown"
 
@@ -80,8 +94,16 @@ def detect_formation(
     return "-".join(str(n) for n in lines)
 
 
-def _mean_depths(tracked_frames: list["TrackedFrame"], team: str) -> np.ndarray:
-    """Mean along-pitch depth (x) per confirmed track of *team*, unsorted.
+_OPPOSITE_END = {"low": "high", "high": "low"}
+
+
+def _mean_depths(
+    tracked_frames: list["TrackedFrame"],
+    team: str,
+    own_goal_end: str,
+    half_time_frame: Optional[int],
+) -> np.ndarray:
+    """Mean distance from the own goal per confirmed track of *team*, unsorted.
 
     Every TrackedFrame holds references to the same live Track objects, so each
     track is read once rather than re-summed per frame. pitch_history is the
@@ -99,21 +121,70 @@ def _mean_depths(tracked_frames: list["TrackedFrame"], team: str) -> np.ndarray:
         for track in frame.confirmed_tracks:
             if track.team != team or track.track_id in depths:
                 continue
-            if track.pitch_history:
-                positions = np.asarray(track.pitch_history, dtype=float)
-                depths[track.track_id] = float(positions[:, 0].mean())
-            elif track.pitch_pos is not None:
-                depths[track.track_id] = float(track.pitch_pos[0])
+            observations = _distances_from_own_goal(
+                track, own_goal_end, half_time_frame
+            )
+            if observations:
+                depths[track.track_id] = float(np.mean(observations))
 
     return np.array(list(depths.values()), dtype=float)
 
 
-def _orient_to_own_goal(depths: np.ndarray, own_goal_end: str) -> np.ndarray:
-    """Return depths sorted ascending from the own goal (index 0 = deepest)."""
-    s = np.sort(depths)
-    if own_goal_end == "high":
-        s = np.sort(s.max() - s)  # own goal was at the high-x end; flip
-    return s
+def _distances_from_own_goal(
+    track: "Track",
+    own_goal_end: str,
+    half_time_frame: Optional[int],
+) -> list[float]:
+    """Each of *track*'s observed depths, as a distance from the goal its team
+    was defending at the moment it was observed.
+
+    Orienting per observation rather than per match is what makes the two
+    halves comparable: they are measured from opposite physical goals but end
+    up on one scale, so the mean over the whole match is meaningful.
+
+    The conversion is absolute (`pitch_length - x`), not a flip about the
+    deepest player seen. A relative flip is fine for a single direction — every
+    downstream read is a difference — but two halves flipped about two
+    different anchors are not on a common scale.
+
+    frame_history is index-aligned with pitch_history: the tracker appends to
+    bbox_history and frame_history together, and run_pipeline builds
+    pitch_history one-for-one from bbox_history. An observation with no frame
+    (a hand-built track, or the single-position fallback) cannot be attributed
+    to a half and takes the first half's direction.
+    """
+    if track.pitch_history:
+        frames = track.frame_history
+        return [
+            _distance(
+                float(pos[0]),
+                _end_at(
+                    own_goal_end,
+                    half_time_frame,
+                    frames[i] if i < len(frames) else None,
+                ),
+            )
+            for i, pos in enumerate(track.pitch_history)
+        ]
+    if track.pitch_pos is not None:
+        return [_distance(float(track.pitch_pos[0]), own_goal_end)]
+    return []
+
+
+def _end_at(
+    first_half_end: str,
+    half_time_frame: Optional[int],
+    frame_id: Optional[int],
+) -> str:
+    """Which end the team defended when *frame_id* was observed."""
+    if half_time_frame is None or frame_id is None or frame_id < half_time_frame:
+        return first_half_end
+    return _OPPOSITE_END[first_half_end]
+
+
+def _distance(x: float, own_goal_end: str) -> float:
+    """Along-pitch distance from the own goal, so 0 is the own goal line."""
+    return x if own_goal_end == "low" else settings.pitch_length - x
 
 
 def _drop_goalkeeper(oriented: np.ndarray) -> np.ndarray:
