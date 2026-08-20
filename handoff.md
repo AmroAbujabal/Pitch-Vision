@@ -1,15 +1,12 @@
 # PitchVision — Handoff
 
-_Last updated: 2026-08-19_ — **the half-time end swap is built and green on the
-branch `half-time-end-swap`, not merged and not pushed.** Five tasks, all through
-task review; one fix round on the dashboard parser after a browser check.
+_Last updated: 2026-08-20_ — **the half-time end swap is shipped and merged to
+`main`.** Five planned tasks plus a review fix wave, all gated: a task review each,
+two scoped re-reviews, a whole-branch review on the most capable model, and
+`/karpathy-check` before the merge.
 
-**One fix wave remains before merge.** The final whole-branch review approved the
-branch with two Important findings and four Minor ones, and it was NOT dispatched —
-the session hit a usage checkpoint first. The complete findings list, in the order to
-hand to a single fix subagent, is in
-`.superpowers/sdd/2026-08-19-half-time-end-swap/progress.md` under
-"Final whole-branch review". Pick it up at next-steps item 1.
+The largest remaining correctness gap in the analytics is closed. Pick the next
+session up at next-steps item 1.
 
 ## Goal
 
@@ -23,8 +20,8 @@ subagent-driven development.
 
 ## Current State
 
-- **Branch `half-time-end-swap`, 7 commits off `main` at `fd190cc`. Working tree
-  clean. Nothing pushed, nothing merged.**
+- **Merged to `main` and pushed.** 12 commits, developed on `half-time-end-swap`
+  off `fd190cc`. Working tree clean.
   - `77ab2d0` docs: design and plan
   - `e8b7481` fix(formation): orient each position to the goal its team was defending
   - `9d65001` feat(db): record when the teams change ends
@@ -32,8 +29,11 @@ subagent-driven development.
   - `8e3aa35` feat(pipeline): pass the half-time mark through to formation detection
   - `d77b2b9` feat(dashboard): let the coach mark half-time on the calibration screen
   - `dbe3a1d` fix(dashboard): accept half-time marks past minute 59 in mm:ss
-- **Verified at checkpoint, all green:** 307 pytest (was 291) / 183 API subset (was
-  177) / ruff clean / `alembic heads` single at `a4c7e912b6d3` / 53 vitest (was 41) /
+  - `6381ad3` fix: bound half_time_seconds, fix a11y/UX picker issues, close doc gaps
+  - `199ea4f` docs: fix module attribution for the two dormant metrics
+  - `c2907a5` refactor: flatten nested list comprehension in _distances_from_own_goal
+- **Verified at checkpoint, all green:** 309 pytest (was 291) / 185 API subset (was
+  177) / ruff clean / `alembic heads` single at `a4c7e912b6d3` / 56 vitest (was 41) /
   `tsc --noEmit` clean.
 - **Driven in a real browser**, API on 8001 with `REDIS_URL="memory://"`, dashboard
   under `TZ=UTC`, against match `72919811-…`:
@@ -119,21 +119,17 @@ Modified:
 
 ## Next steps
 
-1. **Run the one remaining fix wave, then merge.** The complete findings list is in
-   `.superpowers/sdd/2026-08-19-half-time-end-swap/progress.md`. Headlines:
-   - **`half_time_seconds` is unbounded at every layer and overflows.**
-     `Field(default=None, gt=0)` accepts `1e308`, and `round(1e308 * 25.0)` raises
-     `OverflowError` — confirmed directly. Blast radius today is zero because
-     `tasks/pipeline.py`'s `run(...)` is still commented out; the day it is
-     uncommented, an authenticated coach can crash a pipeline run with a request body.
-     Fix is `le=86_400` on the API field and the same ceiling in `parseHalfTime`.
-   - **`CLAUDE.md` was never updated.** Line 181 still lists this feature under
-     Remaining backlog, and the test counts at :51, :68, :145, :161 still say 291.
-     Merged as-is, the next session is told to build what already shipped.
-   - Plus: the orphaned caption, `inputMode="numeric"` hiding the colon on the iOS
-     keypad, the design doc under-counting dormant direction-dependent metrics, and
-     the error `<p>` missing from `aria-describedby`.
-   Then `/karpathy-check`, merge to `main`, push. **Do not open a PR.**
+1. **`run()`'s stage-5b wiring has no test.** `half_time_frame()` is extracted and
+   covered, but the composition inside `scripts/run_pipeline.py::run` — computing
+   `split`, the two warning branches, and threading `half_time_frame=split` into
+   *both* `detect_formation` calls — is verified by reading, not by anything that
+   runs. Nothing in `tests/` imports `run` at all; only its pure helpers. Deliberate:
+   `run()` lazily imports `detection.detector`, `jersey_ocr` and `tracking.tracker`
+   inside its body so the module stays importable without torch, so a test reaching
+   the wiring would have to mock the detector, tracker, OCR, video decode and DB
+   session to assert two kwargs — it would mostly assert its own mocks. Named here so
+   it is not mistaken for verified. Same family as item 6 below.
+
 2. **Frame dimensions are never sent.** `CalibratePicker` knows the real
    `frame.width/height` but `POST /matches/` takes the 1920x1080 default and `PUT
    /calibration` has no field to correct it. This bit during the browser drive — the
@@ -161,9 +157,9 @@ Modified:
 ## How to resume / verify
 
 - `git checkout half-time-end-swap`
-- What CI runs: `/usr/local/bin/python3.11 -m pytest tests/ -q --ignore=tests/test_detection` → 307
+- What CI runs: `/usr/local/bin/python3.11 -m pytest tests/ -q --ignore=tests/test_detection` → 309
 - Lint: `/usr/local/bin/python3.11 -m ruff check .` → clean
-- Dashboard: `cd dashboard && ./node_modules/.bin/tsc --noEmit && npm test` → 53
+- Dashboard: `cd dashboard && ./node_modules/.bin/tsc --noEmit && npm test` → 56
 - The SDD ledger, briefs, reports and review packages are in
   `.superpowers/sdd/2026-08-19-half-time-end-swap/` (git-ignored). **Do not delete it
   until the fix wave is merged** — it is the only record of the findings.
