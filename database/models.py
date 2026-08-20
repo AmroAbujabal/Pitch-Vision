@@ -112,6 +112,15 @@ class Match(Base):
     # who defends which one. Without it formation detection stays "unknown".
     home_defends_end: Mapped[Optional[str]] = mapped_column(String(4))
 
+    # Seconds into the video at which the teams change ends. NULL means the
+    # video is one half, or that the coach did not say — either way the whole
+    # video is treated as one direction, which is what happened before this
+    # column existed. Never inferred: a wrong split mirrors half the match
+    # while looking calibrated, which is the bug it exists to remove.
+    # Stored in seconds rather than frames so a later correction to `fps`
+    # cannot silently move it to a different moment in the video.
+    half_time_seconds: Mapped[Optional[float]] = mapped_column(Float)
+
     # Detected formations, e.g. "4-3-3", or "unknown". Written by the pipeline.
     home_formation: Mapped[Optional[str]] = mapped_column(String(20))
     away_formation: Mapped[Optional[str]] = mapped_column(String(20))
