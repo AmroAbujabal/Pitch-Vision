@@ -8,6 +8,41 @@ two scoped re-reviews, a whole-branch review on the most capable model, and
 The largest remaining correctness gap in the analytics is closed. Pick the next
 session up at next-steps item 1.
 
+## Rename to PitchVision — SHIPPED 2026-08-20 (`3b55d21`)
+
+**The repo now lives at `/Users/amrabujabal/Downloads/pitchvision`** (was
+`Downloads/football-ai`). Nothing inside the repo pinned the old path —
+`config/settings.py` derives `PROJECT_ROOT` from `__file__` and `dev.db` is
+relative to cwd — so the move was a plain `mv`. Two absolute paths in the
+archived half-time plan doc were updated; `dashboard/.next` was deleted because
+it bakes absolute paths.
+
+The API, README, terraform and `package.json` already said PitchVision. The
+holdouts were the dashboard wordmark (`Nav.tsx`, now `pitch` + blue `vision`),
+the page title/template and description (`layout.tsx`), the Celery app name
+(`tasks/pipeline.py:14`) and the example database name (`.env.example`). This
+closes the gap filed at `docs/superpowers/specs/2026-08-16-corner-picker-design.md:202`.
+
+- **Renaming the Celery app name is safe** because the task name is pinned
+  explicitly on the next line (`name="tasks.pipeline.process_match"`). Celery
+  only derives task names from the app's `main` string for tasks defined in
+  `__main__`, and nothing reads `celery_app.main` for queue routing — grepped,
+  not assumed. Queued tasks are not orphaned by the rename.
+- **The description was wrong on two counts, not one.** It said "UAE football
+  academies": the market is Canada (README), and CLAUDE.md:63 reserves
+  "football" for internal/academic references — user-facing copy says "soccer".
+- **Verified in the rendered page, not just `tsc`.** The dev server was started
+  from the new path and `/login` fetched: `<title>`, the description meta and
+  the wordmark all correct, and zero occurrences of "football" in the HTML. A
+  folder move is exactly the kind of thing that survives type-checking and
+  breaks the build, and this repo has a three-session history of that.
+
+**Left alone deliberately** — `database/models.py:36-38` still carries the UAE
+era: a `name_ar` Arabic column (the Arabic UI was dropped), `city` defaulting to
+`"Dubai"` and `country` to `"UAE"`. Those are column defaults and a schema
+change, not branding, so they need a migration rather than a string edit. Filed
+as next-steps item 12.
+
 ## Goal
 
 Next-steps item 1 from the previous handoff: `home_defends_end` described the whole
@@ -32,8 +67,7 @@ subagent-driven development.
   - `6381ad3` fix: bound half_time_seconds, fix a11y/UX picker issues, close doc gaps
   - `199ea4f` docs: fix module attribution for the two dormant metrics
   - `c2907a5` refactor: flatten nested list comprehension in _distances_from_own_goal
-- **Re-verified on `main` at session close (2026-08-20), all green:** 309 pytest (was 291) / 185 API subset (was
-  177) / ruff clean / `alembic heads` single at `a4c7e912b6d3` / 56 vitest (was 41) /
+- **Re-verified on `main` at session close (2026-08-20), all green:** 309 pytest (was 291) / 185 API subset (was 177) / ruff clean / `alembic heads` single at `a4c7e912b6d3` / 56 vitest (was 41) /
   `tsc --noEmit` clean.
 - **Driven in a real browser**, API on 8001 with `REDIS_URL="memory://"`, dashboard
   under `TZ=UTC`, against match `72919811-…`:
@@ -73,7 +107,7 @@ Modified:
 ## Changes Made
 
 1. **Orientation is now absolute and per-observation.** `_orient_to_own_goal` flipped
-   a "high" team with `s.max() - s`, anchored on the deepest *observed* player. Fine
+   a "high" team with `s.max() - s`, anchored on the deepest _observed_ player. Fine
    for one direction — every downstream read is a difference — but two halves flipped
    about two different anchors are not on a common scale. Now each observation
    converts to `x` or `settings.pitch_length - x` before the per-track mean.
@@ -87,7 +121,7 @@ Modified:
    `pitch_history[i]`. No tracker changes.
 4. **Seconds stored, frame derived.** `frame_id` is a plain zero-based decode counter
    with no stride, so `round(seconds * fps)` is exact. Stored as seconds because a
-   later correction to `fps` would silently move a stored *frame* to a different
+   later correction to `fps` would silently move a stored _frame_ to a different
    moment. `detect_formation` never learns about `fps`.
 5. **One formation per team, unchanged.** Both halves become distances from their own
    goal, so `home_formation`/`away_formation` keep their meaning and use more data
@@ -100,7 +134,7 @@ Modified:
 
 1. **A test in the plan was wrong, caught before dispatch.** The plan first asserted
    that a declared split changes nothing on static positions. It would have failed: a
-   declared split *is* trusted, so unswapped positions get their second half mirrored
+   declared split _is_ trusted, so unswapped positions get their second half mirrored
    and every player averages with their own mirror — all 11 land on x=52.5, reported
    as `"11"`. Rewritten as `test_a_wrong_split_gives_a_wrong_answer`, which pins the
    risk the feature accepts, so a future auto-detection attempt has to argue with a
@@ -108,7 +142,7 @@ Modified:
 2. **The `mm:ss` parser rejected the normal case, and unit tests + `tsc` both passed.**
    Minutes were capped at `[0-5]?\d`, so `72:15` was refused with "Enter the half-time
    mark as mm:ss (for example 45:30)" — the format the coach just used, with no hint
-   that `1:12:15` was required. Half-time in a full-match video is normally *past*
+   that `1:12:15` was required. Half-time in a full-match video is normally _past_
    minute 59, because any pre-match footage pushes it there. **Only driving the real
    page found it**; the task review had called it Minor. That is now the third session
    running where a browser found what type-checking and unit tests could not.
@@ -122,7 +156,7 @@ Modified:
 1. **`run()`'s stage-5b wiring has no test.** `half_time_frame()` is extracted and
    covered, but the composition inside `scripts/run_pipeline.py::run` — computing
    `split`, the two warning branches, and threading `half_time_frame=split` into
-   *both* `detect_formation` calls — is verified by reading, not by anything that
+   _both_ `detect_formation` calls — is verified by reading, not by anything that
    runs. Nothing in `tests/` imports `run` at all; only its pure helpers. Deliberate:
    `run()` lazily imports `detection.detector`, `jersey_ocr` and `tracking.tracker`
    inside its body so the module stays importable without torch, so a test reaching
@@ -132,7 +166,7 @@ Modified:
 
 2. **Frame dimensions are never sent.** `CalibratePicker` knows the real
    `frame.width/height` but `POST /matches/` takes the 1920x1080 default and `PUT
-   /calibration` has no field to correct it. This bit during the browser drive — the
+/calibration` has no field to correct it. This bit during the browser drive — the
    corners saved were for a 1280x720 clip against a record claiming 1920x1080, which
    is why the row had to be cleared afterwards.
 3. **Zoned serialisation on the API side.** Naive `DateTime` columns serialise with no
@@ -150,7 +184,12 @@ Modified:
 9. **`Intl.DateTimeFormat` is rebuilt per call** in `dates.ts` (~164µs vs 1.6µs
    reusing one). Measurement already done; re-add the cache only if a page is slow.
 10. **Cloud Run returned 503** on `/health` (2026-08-16). Still untouched.
-11. Backlog: half-time per-half formation output if a coach ever asks; email/slug on
+11. **`Academy` still carries the UAE era** (`database/models.py:36-38`): a
+    `name_ar` Arabic column left over from the dropped Arabic UI, `city`
+    defaulting to `"Dubai"` and `country` to `"UAE"`, against a Canadian market.
+    Left out of the 2026-08-20 branding rename on purpose — changing column
+    defaults and dropping a column is a migration, not a string edit.
+12. Backlog: half-time per-half formation output if a coach ever asks; email/slug on
     `Academy` so login is not a raw UUID; the empty `api/routers/academies.py`; Re-ID
     across occlusions (needs torch); pgvector.
 
@@ -164,11 +203,11 @@ Modified:
   fixed and merged, so the git history is the record now. The design doc and plan
   remain under `docs/superpowers/`.
 - To drive the picker: API `PYTHONPATH=. REDIS_URL="memory://" python3.11 -m uvicorn
-  api.main:app --port 8001`, dashboard `cd dashboard && TZ=UTC npm run dev`.
+api.main:app --port 8001`, dashboard `cd dashboard && TZ=UTC npm run dev`.
   Test academy `7ceca9ce-9c63-4330-8053-d658408c9fc6` / `devpassword`.
 - **The picker needs a decodable video** to extract a frame. `data/raw/`'s only file
   is a 5-byte stub. Make one: `ffmpeg -f lavfi -i testsrc=size=1280x720:rate=25 -t 3
-  -pix_fmt yuv420p out.mp4`. Playwright MCP can only read files under
+-pix_fmt yuv420p out.mp4`. Playwright MCP can only read files under
   `/Users/amrabujabal` — put it there, not in the scratchpad.
 - Clicking canvas corners through Playwright is unreliable; the picker's
   "Enter coordinates instead" panel has `#corner-N-x` / `#corner-N-y` inputs. Use those.
