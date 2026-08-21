@@ -37,11 +37,29 @@ closes the gap filed at `docs/superpowers/specs/2026-08-16-corner-picker-design.
   folder move is exactly the kind of thing that survives type-checking and
   breaks the build, and this repo has a three-session history of that.
 
-**Left alone deliberately** — `database/models.py:36-38` still carries the UAE
-era: a `name_ar` Arabic column (the Arabic UI was dropped), `city` defaulting to
-`"Dubai"` and `country` to `"UAE"`. Those are column defaults and a schema
-change, not branding, so they need a migration rather than a string edit. Filed
-as next-steps item 12.
+**The UAE era is gone too** (same session, second commit). `name_ar` is dropped
+from both `academies` and `players` by migration `b1d5f27ac903` — the product is
+English-only, and a column reserved for one script is a preference the schema
+should not carry. `Academy.city` lost its `"Dubai"` default entirely (there is no
+sensible universal one, and a wrong guess is worse than being asked) and
+`country` now defaults to `"Canada"`, the home market. Seed and test fixtures use
+Canadian placeholders.
+
+- **No migration was needed for the defaults.** The initial migration declares
+  `city`/`country` `nullable=False` with **no `server_default`** — the defaults
+  were Python-side only, so removing them is a model change. `alembic check`
+  confirms models and migrations stay in sync.
+- **Dropping `name_ar` broke nothing, and that was the test.** All 309 tests
+  passed unedited afterwards, which is the evidence that nothing read the column —
+  it was written through `PlayerBase` and returned again, never used for search,
+  display or matching.
+- **The upgrade and the downgrade were both run against `dev.db`**, not just
+  written. Round-trips cleanly; `name_ar` comes back nullable because the dropped
+  values are unrecoverable.
+- **`PlayerBase` losing `name_ar` is a wire-contract change**, verified live: a
+  client that still sends it gets **201 with the field ignored**, not a 422 —
+  pydantic's default `extra="ignore"`, the same trade-off already made for
+  `academy_id`. Checked against a running API, not inferred.
 
 ## Goal
 
@@ -184,12 +202,7 @@ Modified:
 9. **`Intl.DateTimeFormat` is rebuilt per call** in `dates.ts` (~164µs vs 1.6µs
    reusing one). Measurement already done; re-add the cache only if a page is slow.
 10. **Cloud Run returned 503** on `/health` (2026-08-16). Still untouched.
-11. **`Academy` still carries the UAE era** (`database/models.py:36-38`): a
-    `name_ar` Arabic column left over from the dropped Arabic UI, `city`
-    defaulting to `"Dubai"` and `country` to `"UAE"`, against a Canadian market.
-    Left out of the 2026-08-20 branding rename on purpose — changing column
-    defaults and dropping a column is a migration, not a string edit.
-12. Backlog: half-time per-half formation output if a coach ever asks; email/slug on
+11. Backlog: half-time per-half formation output if a coach ever asks; email/slug on
     `Academy` so login is not a raw UUID; the empty `api/routers/academies.py`; Re-ID
     across occlusions (needs torch); pgvector.
 

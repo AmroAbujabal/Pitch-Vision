@@ -28,7 +28,7 @@ def upload_match(db_session, auth_academy):
 
     academy = db_session.execute(select(Academy)).scalar_one_or_none()
     if academy is None:
-        academy = Academy(name="Upload FC", city="Abu Dhabi", country="UAE", tier="pro")
+        academy = Academy(name="Upload FC", city="Calgary", country="Canada", tier="pro")
         db_session.add(academy)
         db_session.flush()
     auth_academy["id"] = academy.id

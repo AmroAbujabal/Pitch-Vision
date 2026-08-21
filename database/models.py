@@ -33,9 +33,10 @@ class Academy(Base):
         Uuid, primary_key=True, default=uuid.uuid4
     )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
-    name_ar: Mapped[Optional[str]] = mapped_column(String(200))   # Arabic name
-    city: Mapped[str] = mapped_column(String(100), default="Dubai")
-    country: Mapped[str] = mapped_column(String(100), default="UAE")
+    # No default for city — there is no sensible universal one, and a wrong
+    # guess is worse than being asked. country defaults to the home market.
+    city: Mapped[str] = mapped_column(String(100))
+    country: Mapped[str] = mapped_column(String(100), default="Canada")
     tier: Mapped[str] = mapped_column(String(50))  # "starter" | "pro" | "club"
     contact_email: Mapped[Optional[str]] = mapped_column(String(255))
     password_hash: Mapped[Optional[str]] = mapped_column(String(255))
@@ -57,7 +58,6 @@ class Player(Base):
     )
     academy_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("academies.id"))
     name: Mapped[str] = mapped_column(String(200))
-    name_ar: Mapped[Optional[str]] = mapped_column(String(200))
     date_of_birth: Mapped[Optional[datetime]] = mapped_column(DateTime)
     nationality: Mapped[Optional[str]] = mapped_column(String(100))
     position: Mapped[str] = mapped_column(String(50))  # GK | CB | FB | DM | CM | AM | W | ST

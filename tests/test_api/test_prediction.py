@@ -25,7 +25,7 @@ from database.models import Academy, Match, Player, PlayerMatchStats, Developmen
 @pytest.fixture
 def player_with_history(db_session, auth_academy):
     """Player with 5 matches of stats + a DevelopmentScore — enough to predict."""
-    academy = Academy(name="Predict FC", city="Abu Dhabi", country="UAE", tier="pro")
+    academy = Academy(name="Predict FC", city="Calgary", country="Canada", tier="pro")
     db_session.add(academy)
     db_session.flush()
     auth_academy["id"] = academy.id
@@ -76,7 +76,7 @@ def player_no_history(db_session, auth_academy):
     """Player with no match stats."""
     academy = db_session.query(Academy).first()
     if academy is None:
-        academy = Academy(name="Empty FC", city="Dubai", country="UAE", tier="starter")
+        academy = Academy(name="Empty FC", city="Vancouver", country="Canada", tier="starter")
         db_session.add(academy)
         db_session.flush()
     auth_academy["id"] = academy.id

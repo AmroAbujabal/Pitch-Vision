@@ -33,8 +33,8 @@ class TestListMatches:
         academy_id = seeded["academy"].id
         data = client.get(f"/api/v1/matches/?academy_id={academy_id}").json()
         row = next(r for r in data if r["id"] == str(seeded["match"].id))
-        assert row["home_team"] == "Al Ain"
-        assert row["away_team"] == "Al Jazira"
+        assert row["home_team"] == "Riverside"
+        assert row["away_team"] == "Lakeside"
         assert row["processing_status"] == "done"
 
     def test_foreign_academy_id_in_query_is_ignored(self, client, seeded):
@@ -69,8 +69,8 @@ class TestMatchSummary:
     def test_response_contains_team_names(self, client, seeded):
         match_id = seeded["match"].id
         data = client.get(f"/api/v1/matches/{match_id}/summary").json()
-        assert data["home_team"] == "Al Ain"
-        assert data["away_team"] == "Al Jazira"
+        assert data["home_team"] == "Riverside"
+        assert data["away_team"] == "Lakeside"
 
     def test_player_count_correct(self, client, seeded):
         match_id = seeded["match"].id
@@ -179,8 +179,8 @@ class TestPlayerStats:
         player_id = seeded["home_player"].id
         data = client.get(f"/api/v1/players/{player_id}/stats").json()
         row = data[0]
-        assert row["home_team"] == "Al Ain"
-        assert row["away_team"] == "Al Jazira"
+        assert row["home_team"] == "Riverside"
+        assert row["away_team"] == "Lakeside"
 
     def test_physical_metrics_in_response(self, client, seeded):
         player_id = seeded["home_player"].id

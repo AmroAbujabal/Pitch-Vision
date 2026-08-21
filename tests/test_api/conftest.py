@@ -106,15 +106,15 @@ def seeded(db_session, auth_academy) -> dict:
     Points the fake token at the academy it creates, so `client` is authorised
     for these records.
     """
-    academy = Academy(name="Test FC", city="Dubai", country="UAE", tier="pro")
+    academy = Academy(name="Test FC", city="Vancouver", country="Canada", tier="pro")
     db_session.add(academy)
     db_session.flush()
     auth_academy["id"] = academy.id
 
     match = Match(
         academy_id=academy.id,
-        home_team="Al Ain",
-        away_team="Al Jazira",
+        home_team="Riverside",
+        away_team="Lakeside",
         processing_status="done",
         fps=25.0,
     )

@@ -12,9 +12,9 @@ Base.metadata.create_all(engine)
 db = SessionLocal()
 
 a = Academy(
-    name='Al Ain FC',
-    city='Al Ain',
-    country='UAE',
+    name='Riverside FC',
+    city='Vancouver',
+    country='Canada',
     tier='pro',
     password_hash=hash_password(PASSWORD),
 )
@@ -23,8 +23,8 @@ db.flush()
 
 m = Match(
     academy_id=a.id,
-    home_team='Al Ain',
-    away_team='Al Jazira',
+    home_team='Riverside',
+    away_team='Lakeside',
     processing_status='done',
     fps=25.0,
 )

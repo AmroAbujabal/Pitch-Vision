@@ -92,8 +92,11 @@ def _trend(predicted: float, current: float, threshold: float = 0.5) -> str:
 # ---------------------------------------------------------------------------
 
 class PlayerBase(BaseModel):
+    # name_ar was dropped in b1d5f27ac903 along with the column behind it. A
+    # client that still sends it gets it silently ignored rather than a 422 —
+    # pydantic's default extra="ignore", the same trade-off already made for
+    # academy_id below.
     name: str
-    name_ar: Optional[str] = None
     position: str
     jersey_number: Optional[int] = None
     preferred_foot: Optional[str] = None

@@ -38,7 +38,7 @@ def session(engine):
 
 @pytest.fixture
 def academy(session) -> Academy:
-    a = Academy(name="Test Academy", city="Dubai", country="UAE", tier="starter")
+    a = Academy(name="Test Academy", city="Vancouver", country="Canada", tier="starter")
     session.add(a)
     session.flush()
     return a

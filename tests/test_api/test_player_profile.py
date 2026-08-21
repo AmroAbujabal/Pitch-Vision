@@ -22,7 +22,7 @@ from database.models import Academy, DevelopmentScore, Match, Player, PlayerMatc
 @pytest.fixture
 def profile_player(db_session, auth_academy):
     """A player with no match stats and no development scores."""
-    academy = Academy(name="Profile FC", city="Dubai", country="UAE", tier="pro")
+    academy = Academy(name="Profile FC", city="Vancouver", country="Canada", tier="pro")
     db_session.add(academy)
     db_session.flush()
     auth_academy["id"] = academy.id
@@ -41,7 +41,7 @@ def profile_player(db_session, auth_academy):
 @pytest.fixture
 def profile_player_with_stats(db_session, auth_academy):
     """A player with one match and PlayerMatchStats (including heatmap_data)."""
-    academy = Academy(name="Stats FC", city="Al Ain", country="UAE", tier="pro")
+    academy = Academy(name="Stats FC", city="Victoria", country="Canada", tier="pro")
     db_session.add(academy)
     db_session.flush()
     auth_academy["id"] = academy.id
@@ -241,7 +241,7 @@ class TestPlayerHeatmap:
         self, client, db_session, auth_academy
     ):
         """A PlayerMatchStats row exists but heatmap_data was never set."""
-        academy = Academy(name="NoHeat FC", city="Dubai", country="UAE", tier="starter")
+        academy = Academy(name="NoHeat FC", city="Vancouver", country="Canada", tier="starter")
         db_session.add(academy)
         db_session.flush()
         auth_academy["id"] = academy.id

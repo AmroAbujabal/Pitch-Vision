@@ -26,7 +26,7 @@ def foreign_match(db_session, seeded) -> Match:
     Depends on `seeded` so the token is already pointed at the caller's own
     academy before this rival record is created.
     """
-    rival = Academy(name="Rival FC", city="Sharjah", country="UAE", tier="pro")
+    rival = Academy(name="Rival FC", city="Halifax", country="Canada", tier="pro")
     db_session.add(rival)
     db_session.flush()
 

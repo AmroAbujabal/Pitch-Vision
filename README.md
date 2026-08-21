@@ -271,7 +271,6 @@ python scripts/train_model.py     # saves to data/models/prediction_{group}.pkl
 | Real pitch homography (manual corner annotations) | Planned |
 | Re-ID across occlusions (TransReID/OSNet) | Planned (needs torch) |
 | Formation detection | Planned |
-| Arabic UI | Planned (name_ar in schema) |
 
 ---
 

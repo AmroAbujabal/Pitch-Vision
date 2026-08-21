@@ -44,8 +44,8 @@ def academy_with_password(db_session):
 
     academy = Academy(
         name="Auth FC",
-        city="Dubai",
-        country="UAE",
+        city="Vancouver",
+        country="Canada",
         tier="pro",
         password_hash=hash_password("secret123"),
     )

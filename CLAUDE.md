@@ -7,7 +7,7 @@ Target market: Amateur and semi-pro soccer clubs in Canada that can't afford Opt
 
 ## Business Goal
 
-Sell a coach-facing dashboard + player profile data to clubs running single touchline cameras or phone video. Bilingual product: Arabic + English UI (Arabic planned, English first).
+Sell a coach-facing dashboard + player profile data to clubs running single touchline cameras or phone video. English-only UI. The schema carries no locale, script or region assumptions — `Academy.country` defaults to Canada because that is the home market, and `city` has no default at all.
 
 ## Stack
 
