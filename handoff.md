@@ -1,12 +1,116 @@
 # PitchVision — Handoff
 
-_Last updated: 2026-08-20 (second session that day)_ — **the repo is now
-PitchVision throughout and lives at `~/Downloads/pitchvision`**, the UAE-era
-locale assumptions are out of the schema, and frame dimensions finally reach the
-API from the picker. Three sections below, newest first; the half-time end swap
-from earlier the same day is further down.
+_Last updated: 2026-08-20 (second session that day)._ The six sections below
+describe **this** session; the four detailed write-ups after them are the
+technical record, and the half-time end swap from earlier the same day is
+summarised at the bottom.
 
-Pick the next session up at next-steps item 1.
+## Goal
+
+No single feature. The session started as "pick up PitchVision" and was
+redirected twice by the user:
+
+1. **Rename all folders and branding to PitchVision.** Most of the repo already
+   said PitchVision; the dashboard, the Celery app and the folder itself did not.
+2. **Remove every UAE reference — keep it universal, leaning Canada, with no
+   cultural or language preferences.** This reached the schema, not just copy.
+3. **"Keep going"** — work the filed backlog. Closed the three items that were
+   real bugs or real duplication, and left the ones that are deliberate notes.
+
+The GitHub repo name was explicitly left as `AmroAbujabal/Pitch-Vision`.
+
+## Current State
+
+- **Six commits on `main`, pushed. Working tree clean.**
+  - `3b55d21` chore: finish the PitchVision rename on the last football_ai surfaces
+  - `3cf478c` docs(handoff): record the rename and the new repo path
+  - `9bd809f` refactor: drop the UAE-era locale assumptions from the schema and fixtures
+  - `bd67f2a` fix(upload): record the video's real dimensions, and stop orphaning the old file
+  - `ca59ba9` refactor(dashboard): share one isUuid instead of two copies of the regex
+  - `2da207e` docs(handoff): record the upload fixes and the isUuid dedup
+- **The repo moved to `/Users/amrabujabal/Downloads/pitchvision`** (was
+  `Downloads/football-ai`). Nothing inside it pinned the old path.
+- **Verified at session close, all green:** **319 pytest** (was 309) / ruff clean /
+  single alembic head **`b1d5f27ac903`** / `tsc --noEmit` clean / **65 vitest**
+  (was 56).
+- **Driven in a real browser**, API on 8001 with `REDIS_URL="memory://"`,
+  dashboard under `TZ=UTC`: login → corner entry → save → upload with a 1280x720
+  ffmpeg clip. `dev.db` ended at `1280|720` where it read `1920|1080` at
+  creation. The rendered `/login` showed the new title, description and wordmark
+  with zero occurrences of "football".
+- **`dev.db` was left as found**, apart from the intended reseed: the test match
+  and its uploaded file were deleted, the compat-test player row removed, and the
+  two academy rows renamed to the new Canadian seed values. Backups at
+  `$CLAUDE_JOB_DIR/tmp/dev.db.bak` and `dev.db.preframe`.
+- **Gates run:** `/karpathy-check` twice (rename, upload fixes) and `/code-review`
+  once (UAE removal). All findings fixed — see Failed Attempts.
+
+## Active Files
+
+New:
+
+- `alembic/versions/b1d5f27ac903_drop_name_ar.py` — drops `name_ar` from both tables.
+- `dashboard/lib/uuid.ts` + `uuid.test.ts` — the shared `isUuid`, kept pure for
+  the same reason `lib/corners.ts` and `lib/half-time.ts` are.
+
+Modified:
+
+- `api/routers/matches.py` — `MAX_FRAME_DIM`, the two upload form fields, the
+  previous-file cleanup, the loguru import.
+- `dashboard/components/CalibratePicker.tsx` — sends the decoded frame size.
+- `dashboard/components/Nav.tsx`, `dashboard/app/layout.tsx` — the wordmark and
+  page titles.
+- `dashboard/lib/proxy.ts`, `dashboard/app/login/page.tsx` — both now use the
+  shared `isUuid`.
+- `database/models.py`, `api/routers/players.py` — `name_ar` gone, `city`/`country`
+  defaults changed.
+- `tasks/pipeline.py` (Celery app name), `.env.example`, `CLAUDE.md`, `README.md`,
+  `scripts/seed_dev.py`, and ten test files (fixture place names).
+
+## Changes Made
+
+Four pieces, each written up in full in its own section below:
+
+1. **Rename to PitchVision** — the folder, the dashboard wordmark, page titles,
+   the Celery app name, the example DB name. `CLAUDE.md:63` reserves "football"
+   for internal references, so the copy says "soccer".
+2. **UAE-era locale assumptions dropped** — `name_ar` off both tables and off
+   `PlayerBase`, `city` default removed, `country` defaults to Canada, fixtures
+   made Canadian.
+3. **Upload records the real frame dimensions, and no longer orphans the previous
+   file** — two corrections to `upload_video`, both about the file it was handed.
+4. **One `isUuid` instead of two copies of the regex.**
+
+## Failed Attempts
+
+Kept because each was caught by something, and the something is the lesson.
+
+1. **I asserted a performance claim I had not checked.** A comment said appending
+   the small form fields before the file lets them "be parsed without waiting on
+   a multi-gigabyte stream". Starlette's `MultiPartParser` consumes the whole body
+   before the handler runs, so field order is functionally inert. The
+   `/karpathy-check` review caught it. Removed from the code and from the write-up
+   below.
+2. **The filed fix for the duplicated UUID regex would not have worked.** The
+   previous handoff said `login/page.tsx` was character-for-character
+   `lib/proxy.ts`'s `isUuid` and implied importing it. `proxy.ts` pulls in
+   `next/server` and `lib/session.ts`, and session.ts calls `cookies()` — the
+   login page is a client component. The duplication was load-bearing. A filed
+   item is a report of a symptom, not a design.
+3. **I traced the frame-dims bug to the wrong place first.** The assumption was
+   that wrong dims corrupt calibrated matches. They do not: `_fw`/`_fh` are read
+   only in `to_pitch`'s `homography is None` branch. That is what moved the fix
+   from `PUT /calibration` to `POST /upload-video`.
+4. **An unrequested wording trim.** Fixing "UAE football academies" I also dropped
+   "Advanced" from the description — not implied by a rename. Caught by
+   `/karpathy-check`, restored.
+5. **My own test comment confused two languages.** It claimed JavaScript's `$`
+   matches before a trailing newline. That is Python's `re`; JavaScript's `$` is
+   end-of-string. Checked in `node` rather than left as prose.
+6. **`sqlite3` from the wrong working directory silently created an empty
+   `dev.db`** in the scratch dir and reported success on a table that did not
+   exist. The shell cwd persists between calls; `cd` to the repo root before
+   touching `dev.db`.
 
 ## Rename to PitchVision — SHIPPED 2026-08-20 (`3b55d21`)
 
@@ -162,114 +266,6 @@ re-exports it so the three route handlers importing from there are untouched.
   `\Z` — a port of this check to the API side would be subtly weaker. Both the
   trailing-newline and embedded-traversal cases are pinned.
 
-## Goal
-
-Next-steps item 1 from the previous handoff: `home_defends_end` described the whole
-video, so a full match had one half's positions mirrored along the pitch length axis
-before averaging — the same silent-wrong-answer family as the corner-winding bug
-`cf5a67d` closed, but reachable even when the calibration is perfect.
-
-Designed and approved this session, then specced, planned, and executed through
-subagent-driven development.
-
-## Current State
-
-- **Merged to `main` and pushed.** 13 commits, developed on `half-time-end-swap`
-  off `fd190cc`. Working tree clean.
-  - `77ab2d0` docs: design and plan
-  - `e8b7481` fix(formation): orient each position to the goal its team was defending
-  - `9d65001` feat(db): record when the teams change ends
-  - `efa9379` feat(api): accept a half-time mark with the calibration
-  - `8e3aa35` feat(pipeline): pass the half-time mark through to formation detection
-  - `d77b2b9` feat(dashboard): let the coach mark half-time on the calibration screen
-  - `dbe3a1d` fix(dashboard): accept half-time marks past minute 59 in mm:ss
-  - `6381ad3` fix: bound half_time_seconds, fix a11y/UX picker issues, close doc gaps
-  - `199ea4f` docs: fix module attribution for the two dormant metrics
-  - `c2907a5` refactor: flatten nested list comprehension in _distances_from_own_goal
-- **Re-verified on `main` at session close (2026-08-20), all green:** 309 pytest (was 291) / 185 API subset (was 177) / ruff clean / `alembic heads` single at `a4c7e912b6d3` / 56 vitest (was 41) /
-  `tsc --noEmit` clean.
-- **Driven in a real browser**, API on 8001 with `REDIS_URL="memory://"`, dashboard
-  under `TZ=UTC`, against match `72919811-…`:
-  - `45:30` → `dev.db half_time_seconds = 2730.0`; clearing the field → NULL.
-  - `45` and `5:5` → Save disabled, `aria-invalid=true`, alert announced.
-  - `72:15` → rejected before the fix, `4335.0` after it.
-- **Reviews:** a task review per task (all spec ✅, all quality approved), one scoped
-  re-review of the fix round, and a final whole-branch review on the most capable
-  model. The final review independently re-derived the two load-bearing claims —
-  the constant-offset algebra and the history index alignment — from the tracker and
-  pipeline source rather than the docstrings, and both hold.
-- **`dev.db` was restored**: match `72919811-…` had its `pitch_corners`,
-  `home_defends_end` and `half_time_seconds` set back to NULL after the browser
-  drive, because the corners were for a 1280x720 test clip while the match record
-  says 1920x1080. Nothing else was left behind. Pre-session copy at
-  `/private/tmp/claude-501/-Users-amrabujabal/edd70e0d-5c07-4af0-b9a5-a4810a581cab/scratchpad/dev.db.session-bak`.
-
-## Active Files
-
-New:
-
-- `docs/superpowers/specs/2026-08-19-half-time-end-swap-design.md` — the design.
-- `docs/superpowers/plans/2026-08-19-half-time-end-swap.md` — the 5-task plan.
-- `alembic/versions/a4c7e912b6d3_add_half_time_to_match.py`
-- `dashboard/lib/half-time.ts` + `half-time.test.ts` — `parseHalfTime`, the mm:ss
-  parsing, kept pure for the same reason `lib/corners.ts` is.
-
-Modified:
-
-- `metrics/formation.py` — the whole behaviour change. `_orient_to_own_goal` deleted.
-- `database/models.py`, `api/routers/matches.py`, `scripts/run_pipeline.py`,
-  `tasks/pipeline.py` (the commented-out `run(...)` call only).
-- `tests/test_metrics/test_formation.py` (+6), `tests/test_api/test_calibration.py`
-  (+6), `tests/test_pipeline/test_positions.py` (+4), `dashboard/lib/half-time.test.ts` (7),
-  `dashboard/components/CalibratePicker.tsx`.
-
-## Changes Made
-
-1. **Orientation is now absolute and per-observation.** `_orient_to_own_goal` flipped
-   a "high" team with `s.max() - s`, anchored on the deepest _observed_ player. Fine
-   for one direction — every downstream read is a difference — but two halves flipped
-   about two different anchors are not on a common scale. Now each observation
-   converts to `x` or `settings.pitch_length - x` before the per-track mean.
-2. **Behaviour-preserving for the no-swap path, and that was the test.** `L - s` and
-   `max(s) - s` differ by the constant `L - max(s)`, so all **19 pre-existing
-   formation tests pass unedited**. They were treated as the check on the reasoning,
-   not as tests to update.
-3. **The half is a filter, not new plumbing.** `bbox_history` and `frame_history` are
-   appended together in `tracker._new_track`/`_update_track`, and `run_pipeline`
-   builds `pitch_history` 1:1 from `bbox_history`, so `frame_history[i]` dates
-   `pitch_history[i]`. No tracker changes.
-4. **Seconds stored, frame derived.** `frame_id` is a plain zero-based decode counter
-   with no stride, so `round(seconds * fps)` is exact. Stored as seconds because a
-   later correction to `fps` would silently move a stored _frame_ to a different
-   moment. `detect_formation` never learns about `fps`.
-5. **One formation per team, unchanged.** Both halves become distances from their own
-   goal, so `home_formation`/`away_formation` keep their meaning and use more data
-   than either half alone. No new columns beyond `half_time_seconds`, no dashboard
-   rendering change.
-6. **The coach enters `mm:ss`** next to the direction radios; blank means one
-   direction. Never inferred — a wrong split is exactly the mirror being removed.
-
-## Failed Attempts
-
-1. **A test in the plan was wrong, caught before dispatch.** The plan first asserted
-   that a declared split changes nothing on static positions. It would have failed: a
-   declared split _is_ trusted, so unswapped positions get their second half mirrored
-   and every player averages with their own mirror — all 11 land on x=52.5, reported
-   as `"11"`. Rewritten as `test_a_wrong_split_gives_a_wrong_answer`, which pins the
-   risk the feature accepts, so a future auto-detection attempt has to argue with a
-   test rather than pass quietly.
-2. **The `mm:ss` parser rejected the normal case, and unit tests + `tsc` both passed.**
-   Minutes were capped at `[0-5]?\d`, so `72:15` was refused with "Enter the half-time
-   mark as mm:ss (for example 45:30)" — the format the coach just used, with no hint
-   that `1:12:15` was required. Half-time in a full-match video is normally _past_
-   minute 59, because any pre-match footage pushes it there. **Only driving the real
-   page found it**; the task review had called it Minor. That is now the third session
-   running where a browser found what type-checking and unit tests could not.
-3. **The plan put a caption in the wrong place.** "Left and right as they appear in
-   the still above." explained the two radio labels; the plan had the half-time block
-   inserted between them, so it now reads as a caption for the half-time input. Not
-   yet fixed — it is minor 3 in the fix wave.
-
 ## Next steps
 
 1. **`run()`'s stage-5b wiring has no test.** `half_time_frame()` is extracted and
@@ -304,6 +300,32 @@ Modified:
 9. Backlog: half-time per-half formation output if a coach ever asks; email/slug on
    `Academy` so login is not a raw UUID; the empty `api/routers/academies.py`; Re-ID
    across occlusions (needs torch); pgvector.
+## Earlier on 2026-08-20 — half-time end swap (`dd0f1d3`)
+
+Summarised; the full write-up is in git history and in the design doc and plan
+under `docs/superpowers/`.
+
+`home_defends_end` described the whole video, so a full match had one half's
+positions mirrored along the pitch length axis before averaging into the
+formation. `Match.half_time_seconds` is a coach-supplied mark, **never inferred**
+— a wrong split re-creates the exact mirror it removes. 13 commits, gated by a
+task review each, two scoped re-reviews, a whole-branch review and
+`/karpathy-check`.
+
+- **Orientation had to become absolute, not a flip about the deepest observed
+  player.** `s.max() - s` is fine for one direction because every downstream read
+  is a difference, but two halves flipped about two different anchors are not on a
+  common scale. `L - s` differs by a constant, which is why all 19 pre-existing
+  formation tests passed unedited — that was the check on the reasoning.
+- **`frame_history` is index-aligned with `pitch_history`**, so attributing an
+  observation to a half is a filter, not tracker surgery.
+- **A `mm:ss` field must accept minutes > 59.** Half-time in a full-match video is
+  normally past minute 59. `tsc` and unit tests both passed; only driving the real
+  page found it.
+- **Client and server must share a bound.** `le=86_400` sits in both
+  `api/routers/matches.py` and `dashboard/lib/half-time.ts`.
+- **Known gap, deliberate:** `scripts/run_pipeline.py::run`'s stage-5b wiring has
+  no test — see next-steps item 1.
 
 ## How to resume / verify
 
