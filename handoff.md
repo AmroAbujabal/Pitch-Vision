@@ -20,7 +20,7 @@ subagent-driven development.
 
 ## Current State
 
-- **Merged to `main` and pushed.** 12 commits, developed on `half-time-end-swap`
+- **Merged to `main` and pushed.** 13 commits, developed on `half-time-end-swap`
   off `fd190cc`. Working tree clean.
   - `77ab2d0` docs: design and plan
   - `e8b7481` fix(formation): orient each position to the goal its team was defending
@@ -32,7 +32,7 @@ subagent-driven development.
   - `6381ad3` fix: bound half_time_seconds, fix a11y/UX picker issues, close doc gaps
   - `199ea4f` docs: fix module attribution for the two dormant metrics
   - `c2907a5` refactor: flatten nested list comprehension in _distances_from_own_goal
-- **Verified at checkpoint, all green:** 309 pytest (was 291) / 185 API subset (was
+- **Re-verified on `main` at session close (2026-08-20), all green:** 309 pytest (was 291) / 185 API subset (was
   177) / ruff clean / `alembic heads` single at `a4c7e912b6d3` / 56 vitest (was 41) /
   `tsc --noEmit` clean.
 - **Driven in a real browser**, API on 8001 with `REDIS_URL="memory://"`, dashboard
