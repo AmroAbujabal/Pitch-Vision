@@ -4,8 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { safeNext } from "@/lib/safe-next";
-
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+import { isUuid } from "@/lib/uuid";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -76,7 +75,7 @@ export default function LoginPage() {
               onChange={(e) => setAcademyId(e.target.value)}
               onBlur={() =>
                 setIdError(
-                  academyId && !UUID.test(academyId.trim())
+                  academyId && !isUuid(academyId.trim())
                     ? "That does not look like an academy ID."
                     : null,
                 )

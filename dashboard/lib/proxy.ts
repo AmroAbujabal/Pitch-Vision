@@ -39,15 +39,15 @@ export async function forward(
   });
 }
 
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 /**
  * Route params land in the API URL, so they are checked before interpolation
  * rather than trusted because Next produced them.
+ *
+ * Re-exported rather than moved so the route handlers importing it from here
+ * keep working; the definition lives in `lib/uuid.ts` because the login page
+ * needs it too and cannot import this module.
  */
-export function isUuid(value: string): boolean {
-  return UUID.test(value);
-}
+export { isUuid } from "./uuid";
 
 export const badId = () =>
   NextResponse.json({ error: "Invalid match id" }, { status: 400 });
