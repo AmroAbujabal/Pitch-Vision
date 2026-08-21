@@ -62,7 +62,7 @@ export default function Nav() {
               className="text-[15px] font-semibold tracking-tight text-white"
               style={{ fontFamily: "'Fira Code', monospace" }}
             >
-              football<span className="text-blue-400">_ai</span>
+              pitch<span className="text-blue-400">vision</span>
             </span>
           </Link>
 

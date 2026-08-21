@@ -947,10 +947,10 @@ The last two sessions each found bugs that `tsc` and unit tests both passed. Do 
 
 ```bash
 # terminal 1
-cd /Users/amrabujabal/Downloads/football-ai
+cd /Users/amrabujabal/Downloads/pitchvision
 PYTHONPATH=. REDIS_URL="memory://" /usr/local/bin/python3.11 -m uvicorn api.main:app --port 8001
 # terminal 2
-cd /Users/amrabujabal/Downloads/football-ai/dashboard && TZ=UTC npm run dev
+cd /Users/amrabujabal/Downloads/pitchvision/dashboard && TZ=UTC npm run dev
 ```
 
 Sign in as `7ceca9ce-9c63-4330-8053-d658408c9fc6` / `devpassword`, open a match's calibrate screen, place four corners, choose a direction, then check:

@@ -4,11 +4,11 @@ import Nav from "@/components/Nav";
 
 export const metadata: Metadata = {
   title: {
-    default: "Football AI — Player Analytics",
-    template: "%s · Football AI",
+    default: "PitchVision — Player Analytics",
+    template: "%s · PitchVision",
   },
   description:
-    "Advanced player profiling dashboard for UAE football academies. Computer vision powered analytics.",
+    "Advanced player profiling dashboard for Canadian soccer clubs. Computer vision powered analytics.",
 };
 
 export default function RootLayout({

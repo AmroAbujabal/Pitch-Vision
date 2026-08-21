@@ -11,7 +11,7 @@ from celery import Celery
 
 from config.settings import settings, find_raw_video
 
-celery_app = Celery("football_ai", broker=settings.redis_url)
+celery_app = Celery("pitchvision", broker=settings.redis_url)
 
 
 @celery_app.task(name="tasks.pipeline.process_match", bind=False)
