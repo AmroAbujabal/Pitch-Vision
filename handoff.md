@@ -1,12 +1,12 @@
 # PitchVision — Handoff
 
-_Last updated: 2026-08-20_ — **the half-time end swap is shipped and merged to
-`main`.** Five planned tasks plus a review fix wave, all gated: a task review each,
-two scoped re-reviews, a whole-branch review on the most capable model, and
-`/karpathy-check` before the merge.
+_Last updated: 2026-08-20 (second session that day)_ — **the repo is now
+PitchVision throughout and lives at `~/Downloads/pitchvision`**, the UAE-era
+locale assumptions are out of the schema, and frame dimensions finally reach the
+API from the picker. Three sections below, newest first; the half-time end swap
+from earlier the same day is further down.
 
-The largest remaining correctness gap in the analytics is closed. Pick the next
-session up at next-steps item 1.
+Pick the next session up at next-steps item 1.
 
 ## Rename to PitchVision — SHIPPED 2026-08-20 (`3b55d21`)
 
@@ -60,6 +60,107 @@ Canadian placeholders.
   client that still sends it gets **201 with the field ignored**, not a 422 —
   pydantic's default `extra="ignore"`, the same trade-off already made for
   `academy_id`. Checked against a running API, not inferred.
+
+## Frame dimensions are sent from the picker — SHIPPED 2026-08-20
+
+Next-steps item 2 from the previous handoff, closed. `POST /matches/` runs before
+a video exists, so it could only default to 1920x1080 and a coach could not be
+expected to know better. `CalibratePicker` decodes the chosen file in the browser
+to show a still for corner-picking — it has displayed "1280 x 720 source pixels"
+on screen the whole time — and never sent it.
+
+`POST /{match_id}/upload-video` now takes optional `frame_width` /
+`frame_height` form fields, and the picker appends them.
+
+- **Upload, not calibration, is the right place.** The dimensions describe _this
+  file_, and upload is the only moment the server sees it. The API's upload
+  endpoint has no calibration gate (only the dashboard UI does), so a curl caller
+  can upload uncalibrated — and that is precisely the path where wrong dims do
+  damage.
+- **Wrong dims corrupt the _uncalibrated_ path, not the calibrated one.** Worth
+  knowing before someone "fixes" this again: `_fw`/`_fh` are read in exactly one
+  place, `run_pipeline.to_pitch`'s `homography is None` branch
+  (`pixel / _fw * pitch_length`). With corners set, `to_pitch` uses the
+  homography, which carries true pixel space and needs no dims at all. So a
+  1280-wide video recorded as 1920 puts every player at two thirds of their true
+  distance from the goal line — silently — but only without a homography.
+- **The write must happen before `_enqueue_processing`**, which commits and then
+  passes the dimensions to the worker _by value_. Writing after would leave the
+  run using the guess while the row claimed otherwise.
+- **`gt=0` is load-bearing, the ceiling is defensive.** `frame_width=0` reaches
+  `pixel / 0` in `to_pitch` and `metrics/pressing.py` and raises deep in the
+  worker, long after the request returned 202. `MAX_FRAME_DIM = 16_384` is past
+  8K so no real camera reaches it.
+- **Optional on purpose** — omitting the fields leaves whatever `POST /matches/`
+  recorded, so `run_pipeline` and existing callers keep working rather than
+  starting to get 422s.
+- **The Next proxy needed no change**: it streams the multipart body straight
+  through, so extra fields pass with the boundary intact. (An earlier comment
+  claimed appending the fields before the file lets them be parsed without
+  waiting on the stream — that is wrong and the review caught it. Starlette's
+  `MultiPartParser` consumes the whole body before the handler runs, so field
+  order is functionally inert. The order is kept only as convention.)
+- **The tests were mutation-checked, not just run.** Deleting the two assignment
+  lines makes exactly the two discriminating tests fail with `assert 1920 == 1280`
+  — the wrong-scale symptom itself. A test that reads the dims back off the
+  fixture would have passed either way, which is why they use literals.
+- **Driven in a real browser end to end**: a 1280x720 clip generated with ffmpeg,
+  through login → corner entry → save → upload, ending with `dev.db` reading
+  `1280|720` where it read `1920|1080` at creation. The stored corners (max
+  1200x650) now sit inside the recorded frame — the mismatch that forced last
+  session's `dev.db` cleanup cannot happen from the dashboard any more.
+
+**Not closed:** nothing validates stored `pitch_corners` against the frame dims,
+so a curl caller can still pair corners from one resolution with dims from
+another. Cross-request validation was judged speculative — the dashboard can no
+longer produce that state. Filed as next-steps item 2.
+
+## Re-upload no longer orphans the old video — SHIPPED 2026-08-20
+
+Previous next-steps item 5. The stored name is `{match_id}{suffix}`, so uploading
+a `.mov` and then an `.mp4` for the same match wrote a second file and left the
+first on disk for good — only the newest is ever read back.
+
+`upload_video` now resolves the previous file before writing and unlinks it
+after, when the name changed.
+
+- **The order is load-bearing in both directions.** Resolved _before_ the write,
+  because the write is what makes it stale. Unlinked _after_, because deleting
+  first and then failing the write would leave the match with no video at all
+  rather than the previous one.
+- **The same-suffix case is the dangerous one.** Re-uploading `.mp4` over `.mp4`
+  overwrites in place, so "the previous file" and "the file just written" are the
+  same path — an unguarded unlink deletes the upload that just succeeded.
+  `previous != dest` is what prevents it, and
+  `test_reuploading_the_same_container_keeps_the_new_file` fails without it.
+- **Resolved through `find_raw_video`, not built here**, so the existing `.name`
+  sanitising applies to a stored value this module did not necessarily write.
+- **A failed unlink logs and continues.** Leaking a file is exactly the behaviour
+  being replaced, so it is not worth failing an upload that already succeeded and
+  is queued.
+- **Mutation-checked:** disabling the delete fails
+  `test_the_previous_container_is_removed`; dropping the `!= dest` guard fails
+  `test_reuploading_the_same_container_keeps_the_new_file`. Two distinct
+  mutations, two distinct tests.
+
+## The duplicated UUID regex is deduped — SHIPPED 2026-08-20
+
+Previous next-steps item 8, but **not** the way it was filed. The note said
+`login/page.tsx` was character-for-character `lib/proxy.ts`'s exported `isUuid`
+and implied importing it. That does not work: `proxy.ts` imports `next/server`
+and `lib/session.ts`, and `session.ts` calls `cookies()` from `next/headers`.
+The login page is a client component, so the import would pull server-only code
+into the browser bundle. The duplication was load-bearing, not laziness.
+
+New `dashboard/lib/uuid.ts` holds the regex and `isUuid`, with no imports at all
+— the same reason `lib/corners.ts` and `lib/half-time.ts` are pure. `proxy.ts`
+re-exports it so the three route handlers importing from there are untouched.
+9 vitest cases.
+
+- **JavaScript's `$` is genuinely end-of-string.** Checked rather than assumed,
+  because Python's `re` `$` matches _before_ a trailing newline and would need
+  `\Z` — a port of this check to the API side would be subtly weaker. Both the
+  trailing-newline and embedded-traversal cases are pinned.
 
 ## Goal
 
@@ -182,36 +283,35 @@ Modified:
    session to assert two kwargs — it would mostly assert its own mocks. Named here so
    it is not mistaken for verified. Same family as item 6 below.
 
-2. **Frame dimensions are never sent.** `CalibratePicker` knows the real
-   `frame.width/height` but `POST /matches/` takes the 1920x1080 default and `PUT
-/calibration` has no field to correct it. This bit during the browser drive — the
-   corners saved were for a 1280x720 clip against a record claiming 1920x1080, which
-   is why the row had to be cleared afterwards.
+2. **Corners are never checked against the frame dimensions.** The dashboard can
+   no longer pair them wrongly (the picker sends both from the same decoded
+   file), but `PUT /calibration` and `POST /upload-video` are separate requests,
+   so a curl caller can still store corners measured at one resolution against
+   dims recorded at another — the exact state that forced last session's `dev.db`
+   cleanup. `corner_problem()` cannot catch it; it never sees the dims. Left open
+   deliberately: cross-request validation for a state the UI cannot produce.
 3. **Zoned serialisation on the API side.** Naive `DateTime` columns serialise with no
    zone. ~15 lines of pydantic serialisers, no migration, would make `isoInstant`
    dead. Visible wire-format change, which is why it is not a drive-by.
 4. **`DISPLAY_ZONE` is one global guess** (`dashboard/lib/dates.ts`). A `timezone`
    column on `Academy` is the upgrade; an env var is the cheap stopgap.
-5. **Orphaned video files.** `upload_video` never deletes a previously uploaded file
-   for the same match, so uploading a `.mov` then an `.mp4` leaks the `.mov`.
-6. **`tasks/pipeline.py::process_match` has no test coverage at all.**
-7. **A third copy of the fetch/busy/error pattern** across `CalibratePicker.save()`,
+5. **`tasks/pipeline.py::process_match` has no test coverage at all.**
+6. **A third copy of the fetch/busy/error pattern** across `CalibratePicker.save()`,
    `.upload()` and `ReprocessButton`. A `useApiAction` hook would fold all three.
-8. **The UUID regex is duplicated** — `dashboard/app/login/page.tsx:8` is
-   character-for-character `lib/proxy.ts`'s exported `isUuid`.
-9. **`Intl.DateTimeFormat` is rebuilt per call** in `dates.ts` (~164µs vs 1.6µs
+7. **`Intl.DateTimeFormat` is rebuilt per call** in `dates.ts` (~164µs vs 1.6µs
    reusing one). Measurement already done; re-add the cache only if a page is slow.
-10. **Cloud Run returned 503** on `/health` (2026-08-16). Still untouched.
-11. Backlog: half-time per-half formation output if a coach ever asks; email/slug on
-    `Academy` so login is not a raw UUID; the empty `api/routers/academies.py`; Re-ID
-    across occlusions (needs torch); pgvector.
+8. **Cloud Run returned 503** on `/health` (2026-08-16). Still untouched.
+9. Backlog: half-time per-half formation output if a coach ever asks; email/slug on
+   `Academy` so login is not a raw UUID; the empty `api/routers/academies.py`; Re-ID
+   across occlusions (needs torch); pgvector.
 
 ## How to resume / verify
 
-- `git checkout half-time-end-swap`
-- What CI runs: `/usr/local/bin/python3.11 -m pytest tests/ -q --ignore=tests/test_detection` → 309
+- The repo is at `/Users/amrabujabal/Downloads/pitchvision`; work is on `main`.
+- What CI runs: `/usr/local/bin/python3.11 -m pytest tests/ -q --ignore=tests/test_detection` → 319
 - Lint: `/usr/local/bin/python3.11 -m ruff check .` → clean
-- Dashboard: `cd dashboard && ./node_modules/.bin/tsc --noEmit && npm test` → 56
+- Migrations: `/usr/local/bin/python3.11 -m alembic heads` → single, `b1d5f27ac903`
+- Dashboard: `cd dashboard && ./node_modules/.bin/tsc --noEmit && npm test` → 65
 - The SDD workspace for this plan has been deleted; every finding it tracked was
   fixed and merged, so the git history is the record now. The design doc and plan
   remain under `docs/superpowers/`.
@@ -224,5 +324,13 @@ api.main:app --port 8001`, dashboard `cd dashboard && TZ=UTC npm run dev`.
   `/Users/amrabujabal` — put it there, not in the scratchpad.
 - Clicking canvas corners through Playwright is unreliable; the picker's
   "Enter coordinates instead" panel has `#corner-N-x` / `#corner-N-y` inputs. Use those.
+- **Those inputs are inside a collapsed `<details>`**, so `fill()` times out with
+  "element is not visible" even though the locator resolves. Open it first:
+  `page.evaluate(() => document.querySelectorAll('details').forEach(d => d.open = true))`.
+- **The file input is `sr-only` behind its label**, so clicking it fails with
+  "span intercepts pointer events". Set the file directly instead:
+  `page.setInputFiles('#video-file', '/Users/amrabujabal/<clip>.mp4')`.
+- Playwright MCP's `browser_run_code_unsafe` takes an `async (page) => {...}`
+  arrow function, not bare statements — bare `await page...` is a SyntaxError.
 - `dev.db` stores match ids **without dashes**; a `WHERE id='<dashed>'` updates zero
   rows and reports success.
