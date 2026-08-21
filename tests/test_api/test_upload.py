@@ -147,6 +147,199 @@ class TestUploadVideo:
         )
 
 
+class TestUploadRecordsTheRealFrameDimensions:
+    """
+    POST /matches/ runs before a video exists, so it can only default to
+    1920x1080. Upload is the first moment the server sees the file, so it is
+    where the guess gets corrected.
+
+    Wrong dimensions fail silently, never loudly: `run_pipeline.to_pitch` falls
+    back to `pixel / frame_width * pitch_length` when a match has no usable
+    homography, so a 1280-wide video recorded as 1920 puts every player at two
+    thirds of their true distance from the goal line.
+
+    Every assertion here uses literal 1280/720 rather than reading the values
+    back off `upload_match`. Reading them back would pass whether or not the
+    request changed anything.
+    """
+
+    def test_supplied_dimensions_are_stored(
+        self, client, upload_match, db_session, tmp_raw_dir
+    ):
+        assert (upload_match.frame_width, upload_match.frame_height) == (1920, 1080)
+
+        with patch("api.routers.matches.process_match"):
+            resp = client.post(
+                f"/api/v1/matches/{upload_match.id}/upload-video",
+                files=_mp4(),
+                data={"frame_width": 1280, "frame_height": 720},
+            )
+        assert resp.status_code == 202
+
+        db_session.expire_all()
+        match = db_session.get(Match, upload_match.id)
+        assert (match.frame_width, match.frame_height) == (1280, 720)
+
+    def test_the_worker_is_handed_the_supplied_dimensions(
+        self, client, upload_match, tmp_raw_dir
+    ):
+        """
+        The row being right is not enough — the dimensions are passed to the
+        task by value, so writing them after the enqueue would leave the run
+        using the 1920x1080 guess while the row claimed 1280x720.
+        """
+        with patch("api.routers.matches.process_match") as mock_task:
+            client.post(
+                f"/api/v1/matches/{upload_match.id}/upload-video",
+                files=_mp4(),
+                data={"frame_width": 1280, "frame_height": 720},
+            )
+        args = mock_task.delay.call_args.args
+        assert args[3] == 1280
+        assert args[4] == 720
+
+    def test_omitting_them_leaves_the_existing_values(
+        self, client, upload_match, db_session, tmp_raw_dir
+    ):
+        """Optional, so run_pipeline and pre-existing API callers keep working."""
+        with patch("api.routers.matches.process_match"):
+            resp = client.post(
+                f"/api/v1/matches/{upload_match.id}/upload-video",
+                files=_mp4(),
+            )
+        assert resp.status_code == 202
+
+        db_session.expire_all()
+        match = db_session.get(Match, upload_match.id)
+        assert (match.frame_width, match.frame_height) == (1920, 1080)
+
+    @pytest.mark.parametrize(
+        "field", ["frame_width", "frame_height"]
+    )
+    def test_zero_is_refused(self, client, upload_match, tmp_raw_dir, field):
+        """
+        Zero is the one value that fails loudly instead of silently, and it does
+        so inside the worker: `pixel / 0` in to_pitch and metrics/pressing.py
+        raises ZeroDivisionError long after this request returned 202.
+        """
+        data = {"frame_width": 1280, "frame_height": 720}
+        data[field] = 0
+        with patch("api.routers.matches.process_match"):
+            resp = client.post(
+                f"/api/v1/matches/{upload_match.id}/upload-video",
+                files=_mp4(),
+                data=data,
+            )
+        assert resp.status_code == 422
+
+    def test_the_ceiling_is_inclusive(self, client, upload_match, tmp_raw_dir):
+        """Exactly MAX_FRAME_DIM is accepted; one past it is not."""
+        from api.routers.matches import MAX_FRAME_DIM
+
+        with patch("api.routers.matches.process_match"):
+            ok = client.post(
+                f"/api/v1/matches/{upload_match.id}/upload-video",
+                files=_mp4(),
+                data={"frame_width": MAX_FRAME_DIM, "frame_height": 720},
+            )
+            too_big = client.post(
+                f"/api/v1/matches/{upload_match.id}/upload-video",
+                files=_mp4(),
+                data={"frame_width": MAX_FRAME_DIM + 1, "frame_height": 720},
+            )
+        assert ok.status_code == 202
+        assert too_big.status_code == 422
+
+
+class TestReuploadDoesNotLeaveTheOldFileBehind:
+    """
+    The stored name is `{match_id}{suffix}`, so re-uploading the same match in a
+    different container writes a second file and only the newest is ever read
+    back. The older one was previously orphaned on disk for good.
+    """
+
+    def _mov(self, content: bytes = b"fake mov bytes") -> dict:
+        return {"file": ("match.mov", io.BytesIO(content), "video/quicktime")}
+
+    def test_the_previous_container_is_removed(
+        self, client, upload_match, tmp_raw_dir
+    ):
+        with patch("api.routers.matches.process_match"):
+            client.post(
+                f"/api/v1/matches/{upload_match.id}/upload-video",
+                files=self._mov(),
+            )
+            assert (tmp_raw_dir / f"{upload_match.id}.mov").exists()
+
+            client.post(
+                f"/api/v1/matches/{upload_match.id}/upload-video",
+                files=_mp4(),
+            )
+
+        assert (tmp_raw_dir / f"{upload_match.id}.mp4").exists()
+        assert not (tmp_raw_dir / f"{upload_match.id}.mov").exists()
+        assert sorted(p.name for p in tmp_raw_dir.iterdir()) == [
+            f"{upload_match.id}.mp4"
+        ]
+
+    def test_reuploading_the_same_container_keeps_the_new_file(
+        self, client, upload_match, tmp_raw_dir
+    ):
+        """
+        The dangerous case. A same-suffix re-upload overwrites the old file in
+        place, so "the previous file" and "the file just written" are the same
+        path — deleting the previous one unconditionally would throw away the
+        upload that just succeeded and leave the match pointing at nothing.
+        """
+        with patch("api.routers.matches.process_match"):
+            client.post(
+                f"/api/v1/matches/{upload_match.id}/upload-video",
+                files=_mp4(b"first"),
+            )
+            client.post(
+                f"/api/v1/matches/{upload_match.id}/upload-video",
+                files=_mp4(b"second"),
+            )
+
+        dest = tmp_raw_dir / f"{upload_match.id}.mp4"
+        assert dest.exists()
+        assert dest.read_bytes() == b"second"
+
+    def test_a_first_upload_has_nothing_to_delete(
+        self, client, upload_match, tmp_raw_dir
+    ):
+        with patch("api.routers.matches.process_match"):
+            resp = client.post(
+                f"/api/v1/matches/{upload_match.id}/upload-video",
+                files=_mp4(),
+            )
+        assert resp.status_code == 202
+        assert (tmp_raw_dir / f"{upload_match.id}.mp4").exists()
+
+    def test_an_undeletable_previous_file_does_not_fail_the_upload(
+        self, client, upload_match, tmp_raw_dir
+    ):
+        """
+        Leaking a file is exactly the behaviour this replaced, so it is not
+        worth failing an upload that otherwise succeeded and is already queued.
+        """
+        with patch("api.routers.matches.process_match"):
+            client.post(
+                f"/api/v1/matches/{upload_match.id}/upload-video",
+                files=self._mov(),
+            )
+            with patch(
+                "pathlib.Path.unlink", side_effect=OSError("read-only filesystem")
+            ):
+                resp = client.post(
+                    f"/api/v1/matches/{upload_match.id}/upload-video",
+                    files=_mp4(),
+                )
+
+        assert resp.status_code == 202
+        assert (tmp_raw_dir / f"{upload_match.id}.mp4").exists()
+
+
 class TestBrokerFailureDoesNotStrandTheMatch:
     """
     Regression: the status is committed as "processing" before the task is

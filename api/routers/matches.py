@@ -10,7 +10,8 @@ from uuid import UUID
 from typing import Literal, Optional
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, Form, HTTPException, UploadFile, File
+from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -26,6 +27,12 @@ from utils.pitch_corners import corner_problem
 router = APIRouter(dependencies=[Depends(get_current_academy_id)])
 
 _MATCH_NOT_FOUND = HTTPException(status_code=404, detail="Match not found")
+
+# Upper bound on a stored frame dimension. Comfortably past 8K, so no real
+# camera reaches it. The lower bound is what actually matters: frame_width=0
+# reaches `pixel / frame_width` in run_pipeline.to_pitch and metrics/pressing.py
+# and raises ZeroDivisionError mid-pipeline, long after the request succeeded.
+MAX_FRAME_DIM = 16_384
 
 
 def get_scoped_match(
@@ -320,16 +327,36 @@ def _enqueue_processing(match: Match, db: Session) -> None:
 @router.post("/{match_id}/upload-video", status_code=202)
 def upload_video(
     file: UploadFile = File(...),
+    frame_width: Optional[int] = Form(default=None, gt=0, le=MAX_FRAME_DIM),
+    frame_height: Optional[int] = Form(default=None, gt=0, le=MAX_FRAME_DIM),
     match: Match = Depends(get_scoped_match),
     db: Session = Depends(get_db),
 ):
-    """Accept a video file, save it to disk, and enqueue the processing pipeline."""
+    """
+    Accept a video file, save it to disk, and enqueue the processing pipeline.
+
+    `frame_width` / `frame_height` are this file's real pixel dimensions. They
+    belong here rather than on the calibration route because they describe the
+    video, and this is the only moment the server sees it — `POST /matches/` has
+    to guess, running before a video exists.
+
+    Getting them wrong is silent: `run_pipeline.to_pitch` falls back to
+    `pixel / frame_width * pitch_length` when a match has no usable homography,
+    so a 1280-wide video recorded as 1920 puts every position at two thirds of
+    its true distance from the goal line. Optional, so existing callers that
+    omit them keep the value `POST /matches/` recorded.
+    """
     suffix = Path(file.filename).suffix.lower()
     if suffix not in ALLOWED_VIDEO_EXTENSIONS:
         raise HTTPException(
             status_code=400,
             detail=f"Unsupported format. Allowed: {', '.join(sorted(ALLOWED_VIDEO_EXTENSIONS))}",
         )
+
+    # Resolved before the write, because the write is what makes it stale.
+    # Through find_raw_video rather than built here, so the same .name
+    # sanitising applies to a stored value this module did not write.
+    previous = find_raw_video(match.id, match.video_path)
 
     # Name built from the match id and the suffix checked above, never from
     # file.filename — that is caller-supplied and would put its directory
@@ -340,6 +367,30 @@ def upload_video(
         shutil.copyfileobj(file.file, out)
 
     match.video_path = name
+
+    # Only when the name actually changed. Re-uploading the same container
+    # overwrote `previous` in place a moment ago, so it and `dest` are the same
+    # file — unlinking it would delete the video that was just uploaded.
+    # Deleted after the write, not before: a failed write would otherwise leave
+    # the match with no video at all rather than the previous one.
+    if previous is not None and previous != dest:
+        try:
+            previous.unlink()
+        except OSError:
+            # Leaking a file is the behaviour this replaced; it is not worth
+            # failing an upload that otherwise succeeded and is already queued.
+            logger.warning(
+                f"upload_video: could not delete replaced video {previous} "
+                f"for match {match.id}"
+            )
+
+    # Written before _enqueue_processing, which commits and then hands the
+    # dimensions to the worker — set them afterwards and the run would use the
+    # creation-time guess while the row claimed otherwise.
+    if frame_width is not None:
+        match.frame_width = frame_width
+    if frame_height is not None:
+        match.frame_height = frame_height
 
     _enqueue_processing(match, db)
 

@@ -239,6 +239,14 @@ export default function CalibratePicker({ matchId }: { matchId: string }) {
     setError(null);
     try {
       const form = new FormData();
+      // `frame` is the decoded size of this exact file — it is only ever set
+      // behind the isCurrent() guard above, and a file that fails to decode
+      // clears itself — so it cannot describe a different one.
+      // POST /matches/ had to guess these; the guess is what gets corrected.
+      if (frame) {
+        form.append("frame_width", String(frame.width));
+        form.append("frame_height", String(frame.height));
+      }
       form.append("file", file);
       const res = await fetch(`/api/matches/${matchId}/upload`, {
         method: "POST",
